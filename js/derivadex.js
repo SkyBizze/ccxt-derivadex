@@ -144,6 +144,7 @@ module.exports = class derivadex extends Exchange {
                     'get': {
                         'rest/ohlcv': 1,
                         'encryption-key': 1,
+                        'request': 1,
                     },
                     'post': {
                         'request': 1,
