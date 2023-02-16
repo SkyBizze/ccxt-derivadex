@@ -137,12 +137,14 @@ module.exports = class derivadex extends Exchange {
                         'markets/markets': 1,
                         'markets/order_book/L2/{symbol}': 1,
                         'markets/tickers': 1,
+                        'snapshot/addresses': 1,
                     },
                 },
                 'v2': {
                     'get': {
                         'rest/ohlcv': 1,
                         'encryption-key': 1,
+                        'request': 1,
                     },
                 },
                 'private': {
@@ -863,6 +865,40 @@ module.exports = class derivadex extends Exchange {
         }
     }
 
+    orderTypeToInt (orderTypeString) {
+        if (orderTypeString === 'Limit') {
+            return 0;
+        } else if (orderTypeString === 'Market') {
+            return 1;
+        } else {
+            return 2;
+        }
+    }
+
+    orderSideToInt (orderSide) {
+        if (orderSide === 'Bid') {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
+
+    async cancelOrder (id, symbol = undefined, params = {}) {
+        /**
+         * @method
+         * @name derivadex#cancelOrder
+         * @description cancels an open order
+         * @param {string} id order id
+         * @param {string|undefined} symbol not used by derivadex cancelOrder ()
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @returns {object} An [order structure]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
+         */
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const orderIntent = this.getOperatorCancelOrderIntent (market, id);
+        return this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder'); // TODO: this should return an Order obj
+    }
+
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
         /**
          * @method
@@ -879,22 +915,36 @@ module.exports = class derivadex extends Exchange {
         await this.loadMarkets ();
         const market = this.market (symbol);
         const orderType = this.capitalize (type);
-        // get the order intent
         const orderIntent = this.getOperatorSubmitOrderIntent (market, side, orderType, amount, price);
+        return this.getOperatorResponseForOrderIntent (orderIntent, 'Order'); // TODO: this should return an Order obj
+    }
+
+    getOperatorResponseForOrderIntent (orderIntent, requestType) {
         // get the scaled order intent
-        const scaledOrderIntent = this.getScaledOrderIntent (orderIntent);
+        const scaledOrderIntent = requestType === 'Order' ? this.getScaledOrderIntent (orderIntent) : orderIntent;
         // get the order intent typed data
-        const typedData = {};
+        const [ addressesResponse, encryptionKey ] = await Promise.all ([
+            this.publicGetSnapshotAddresses ({'contractDeployment': 'beta'}), // TODO: switch to mainnet deployment,
+            this.v2GetEncryptionkey (),
+        ]);
+        const typedData = transformTypedDataForEthers(
+            createOrderIntentTypedData(
+                scaledOrderIntent,
+                addressesResponse['chainId'],
+                addressesResponse['addresses']['derivaDEXAddress'],
+            ),
+        );
         // get the order signature
-        const signature = {};
-        orderIntent.signature = signature;
-        const intent = { 't': 'Order', 'c': orderIntent };
+        const typedDataHash = this.hash (JSON.stringify (typedData), 'keccak', 'hex');
+        const signature = this.signMessageString (typedDataHash, this.privateKey);
+        orderIntent['signature'] = signature;
+        const intent = { 't':  requestType, 'c': orderIntent };
         // encrypt intent
-        const encryptedIntent = await this.encryptIntent (intent);
+        const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
         // get the 21 byte trader address
         const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
         // make the request
-        // submitOrderParamsAsync.request({ traderAddress: twentyOneByteAccount, encryptedIntent }));
+        return response = await this.publicv2GetRequest ({ 'traderAddress': twentyOneByteAccount, 'encryptedIntent': encryptedIntent});
     }
 
     addDiscriminant (traderAddress) {
@@ -910,32 +960,154 @@ module.exports = class derivadex extends Exchange {
     getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price) {
         return {
             'traderAddress': this.walletAddress,
-            symbol,
+            'symbol': symbol,
             'strategy': 'main',
             'side': side === 'buy' ? 'Bid' : 'Ask',
-            orderType,
+            'orderType': orderType,
             'nonce': this.asNonce (Date.now ()),
-            'amount': amount,
-            'price': price,
-            'stopPrice': 0,
+            'amount': BigInt (amount),
+            'price': BigInt (price),
+            'stopPrice': BigInt (0),
             'signature': '0x0',
         };
     }
 
+    getOperatorCancelOrderIntent (symbol, orderHash) {
+        const ZERO_PADDING = '00000000000000';
+        return {
+            'symbol': symbol,
+            'nonce': this.asNonce (Date.now ()),
+            'signature': '0x',
+            'orderHash': orderHash + ZERO_PADDING,
+        };
+    }
+
     getScaledOrderIntent (intent) {
-        // const operatorDecimals = 6;
-        // const operatorDecimalMultiplier = new BigInt (10) ** operatorDecimals;
+        const operatorDecimals = 6;
+        const operatorDecimalMultiplier = BigInt (10) ** operatorDecimals;
         // return {
         //     ...intent,
         //     amount: new BigInt (intent['amount']) * operatorDecimalMultiplier,
         //     price: new BigInt (intent['price']) * operatorDecimalMultiplier,
         //     stopPrice: new BigInt (intent['stopPrice']) * operatorDecimalMultiplier,
         // };
+        // TODO: resolve spread operator not working
+        return {
+            'traderAddress': intent['traderAddress'],
+            'symbol': intent['symbol'],
+            'strategy': intent['strategy'],
+            'side': intent['side'],
+            'orderType': intent['orderType'],
+            'nonce': intent['nonce'],
+            'amount': intent['amount'] * operatorDecimalMultiplier,
+            'price': intent['price'] * operatorDecimalMultiplier,
+            'stopPrice': intent['stopPrice'] * operatorDecimalMultiplier,
+            'signature': intent['signature'],
+        };
     }
 
-    async encryptIntent (intent) {
-        const encryptionKey = await this.v2GetEncryptionkey ();
-        // get the encryption key from the operator and do the thing
+    transformTypedDataForEthers (typedData) {
+        return {
+            domain: typedData.domain,
+            types: _.omit (typedData.types, 'EIP712Domain'),
+            value: typedData.message,
+        };
+    }
+
+    encodeStringIntoBytes32 (str) {
+        let bytes32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
+        // Convert the string to a UTF-8 byte array
+        const utf8Bytes = new TextEncoder().encode(str);
+        // Copy the bytes from the UTF-8 array to the bytes32 string, up to 32 bytes
+        for (let i = 0; i < utf8Bytes.length && i < 32; i++) {
+          const hexByte = utf8Bytes[i].toString(16).padStart(2, '0');
+          bytes32 = bytes32.substring(0, 2 + (i * 2)) + hexByte + bytes32.substring(4 + (i * 2));
+        }
+        return bytes32;
+    }
+      
+    createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress) {
+        return {
+            'primaryType': 'OrderParams',
+            'types': {
+                'EIP712Domain': [
+                    { 'name': 'name', 'type': 'string' },
+                    { 'name': 'version', 'type': 'string' },
+                    { 'name': 'chainId', 'type': 'uint256' },
+                    { 'name': 'verifyingContract', 'type': 'address' },
+                ],
+                'OrderParams': [
+                    { 'name': 'symbol', 'type': 'bytes32' },
+                    { 'name': 'strategy', 'type': 'bytes32' },
+                    { 'name': 'side', 'type': 'uint256' },
+                    { 'name': 'orderType', 'type': 'uint256' },
+                    { 'name': 'nonce', 'type': 'bytes32' },
+                    { 'name': 'amount', 'type': 'uint256' },
+                    { 'name': 'price', 'type': 'uint256' },
+                    { 'name': 'stopPrice', 'type': 'uint256' },
+                ],
+            },
+            'domain': createEIP712DomainSeperator(chainId, verifyingContractAddress),
+            'message': {
+                'symbol': encodeStringIntoBytes32(orderIntent.symbol),
+                'strategy': encodeStringIntoBytes32(orderIntent.strategy),
+                'side': orderSideToInt(orderIntent.side).toString(),
+                'orderType': orderTypeToInt(orderIntent.orderType).toString(),
+                'nonce': orderIntent.nonce,
+                'amount': orderIntent.amount.toString(),
+                'price': orderIntent.price.toString(),
+                'stopPrice': orderIntent.stopPrice.toString(),
+            },
+        };
+    }
+
+    createEIP712DomainSeperator (chainId, verifyingContractAddress) {
+        return {
+            'name': 'DerivaDEX',
+            'version': '1',
+            'chainId': chainId,
+            'verifyingContract': verifyingContractAddress,
+        };
+    }
+
+    async encryptIntent (encryptionKey, payload) {
+        // Create an ephemeral ECDSA private key to encrypt the request.
+        // Either create a new key for each request or reuse by storing in local storage.
+        // Eventually, if we want to replace eip712 signing each request by an authentication key,
+        // we can use pseudo-randomness with a seed to let users backup their key.
+        // For now, users don't care about their key after sending each request.
+        const secretKeyBytes = new Uint8Array (randomBytes (32));
+        // Unique single-use nonce for each encryption.
+        // It is important to never repeat nonces.
+        const nonceBytes = new Uint8Array (randomBytes (12));
+        const json = JSON.stringify (payload);
+        const buffer = Buffer.from (json);
+        // We use native Uint8Array where possible to avoid unnecessary string operations.
+        const requestBytes = new Uint8Array (buffer);
+        const encryptedBytes = encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes);
+        return hexlify (encryptedBytes);
+    }
+
+    encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes) {
+        const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, nonceBytes);
+        let enc = cipher.update(requestBytes, 'utf8', 'base64');
+        enc += cipher.final('base64');
+        return [enc, nonceBytes, cipher.getAuthTag()];
+    }
+
+    hexlify (input) {
+        if (typeof input === 'number') {
+          return `0x${input.toString (16)}`;
+        }
+        if (typeof input === 'string') {
+          return `0x${Buffer.from (input, 'utf8').toString ('hex')}`;
+        }
+        if (Buffer.isBuffer (input)) {
+          return `0x${input.toString ('hex')}`;
+        }
+        if (typeof input === 'object' && input.toHexString) {
+          return input.toHexString ();
+        }
     }
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
