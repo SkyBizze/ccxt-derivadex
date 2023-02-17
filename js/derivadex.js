@@ -2,6 +2,8 @@
 
 //  ---------------------------------------------------------------------------
 
+const crypto = require ('crypto');
+const secp256k1 = require ('secp256k1');
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
