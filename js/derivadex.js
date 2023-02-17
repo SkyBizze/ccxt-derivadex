@@ -1122,7 +1122,7 @@ module.exports = class derivadex extends Exchange {
             throw new AuthenticationError (this.id + ' createOrder endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
-        const market = this.market (symbol);
+        // const market = this.market (symbol);
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (market['id'], side, orderType, amount, price);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
@@ -1168,6 +1168,7 @@ module.exports = class derivadex extends Exchange {
     addDiscriminant (traderAddress) {
         // TODO: look up / resolve discriminant from chainId -- hard coding 00 for ethereum for now
         const prefix = '0x00';
+        console.log ('before addDiscriminant returns', traderAddress, `${prefix}${traderAddress.slice (2)}`);
         return `${prefix}${traderAddress.slice (2)}`;
     }
 
