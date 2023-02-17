@@ -1381,6 +1381,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     async encryptIntent (encryptionKey, payload) {
+        console.log ('encryptIntent with params', encryptionKey, payload);
         // Create an ephemeral ECDSA private key to encrypt the request.
         const secretKeyBytes = this.wordArrayToBytes (CryptoJS.lib.WordArray.random (32), 32);
         // Unique single-use nonce for each encryption.
