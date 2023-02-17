@@ -2,6 +2,8 @@
 
 //  ---------------------------------------------------------------------------
 
+const crypto = require ('crypto');
+const secp256k1 = require ('secp256k1');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
@@ -896,7 +898,7 @@ module.exports = class derivadex extends Exchange {
         await this.loadMarkets ();
         const market = this.market (symbol);
         const orderIntent = this.getOperatorCancelOrderIntent (market, id);
-        return this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder'); // TODO: this should return an Order obj
+        return await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder'); // TODO: this should return an Order obj
     }
 
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
@@ -916,35 +918,35 @@ module.exports = class derivadex extends Exchange {
         const market = this.market (symbol);
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (market, side, orderType, amount, price);
-        return this.getOperatorResponseForOrderIntent (orderIntent, 'Order'); // TODO: this should return an Order obj
+        return await this.getOperatorResponseForOrderIntent (orderIntent, 'Order'); // TODO: this should return an Order obj
     }
 
-    getOperatorResponseForOrderIntent (orderIntent, requestType) {
+    async getOperatorResponseForOrderIntent (orderIntent, requestType) {
         // get the scaled order intent
         const scaledOrderIntent = requestType === 'Order' ? this.getScaledOrderIntent (orderIntent) : orderIntent;
         // get the order intent typed data
         const [ addressesResponse, encryptionKey ] = await Promise.all ([
-            this.publicGetSnapshotAddresses ({'contractDeployment': 'beta'}), // TODO: switch to mainnet deployment,
+            this.publicGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
             this.v2GetEncryptionkey (),
         ]);
-        const typedData = transformTypedDataForEthers(
-            createOrderIntentTypedData(
+        const typedData = this.transformTypedDataForEthers (
+            this.createOrderIntentTypedData (
                 scaledOrderIntent,
                 addressesResponse['chainId'],
-                addressesResponse['addresses']['derivaDEXAddress'],
-            ),
+                addressesResponse['addresses']['derivaDEXAddress']
+            )
         );
         // get the order signature
         const typedDataHash = this.hash (JSON.stringify (typedData), 'keccak', 'hex');
         const signature = this.signMessageString (typedDataHash, this.privateKey);
         orderIntent['signature'] = signature;
-        const intent = { 't':  requestType, 'c': orderIntent };
+        const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
         // get the 21 byte trader address
         const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
         // make the request
-        return response = await this.publicv2GetRequest ({ 'traderAddress': twentyOneByteAccount, 'encryptedIntent': encryptedIntent});
+        return await this.publicv2GetRequest ({ 'traderAddress': twentyOneByteAccount, 'encryptedIntent': encryptedIntent });
     }
 
     addDiscriminant (traderAddress) {
@@ -965,9 +967,9 @@ module.exports = class derivadex extends Exchange {
             'side': side === 'buy' ? 'Bid' : 'Ask',
             'orderType': orderType,
             'nonce': this.asNonce (Date.now ()),
-            'amount': BigInt (amount),
-            'price': BigInt (price),
-            'stopPrice': BigInt (0),
+            'amount': this.BigInt (amount),
+            'price': this.BigInt (price),
+            'stopPrice': this.BigInt (0),
             'signature': '0x0',
         };
     }
@@ -984,14 +986,8 @@ module.exports = class derivadex extends Exchange {
 
     getScaledOrderIntent (intent) {
         const operatorDecimals = 6;
-        const operatorDecimalMultiplier = BigInt (10) ** operatorDecimals;
-        // return {
-        //     ...intent,
-        //     amount: new BigInt (intent['amount']) * operatorDecimalMultiplier,
-        //     price: new BigInt (intent['price']) * operatorDecimalMultiplier,
-        //     stopPrice: new BigInt (intent['stopPrice']) * operatorDecimalMultiplier,
-        // };
-        // TODO: resolve spread operator not working
+        const operatorDecimalMultiplier = this.BigInt (10) ** operatorDecimals;
+        // TODO: resolve spread operator not working and use that instead
         return {
             'traderAddress': intent['traderAddress'],
             'symbol': intent['symbol'],
@@ -1008,24 +1004,24 @@ module.exports = class derivadex extends Exchange {
 
     transformTypedDataForEthers (typedData) {
         return {
-            domain: typedData.domain,
-            types: _.omit (typedData.types, 'EIP712Domain'),
-            value: typedData.message,
+            'domain': typedData.domain,
+            'types': this.omit (typedData.types, 'EIP712Domain'),
+            'value': typedData.message,
         };
     }
 
     encodeStringIntoBytes32 (str) {
         let bytes32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
         // Convert the string to a UTF-8 byte array
-        const utf8Bytes = new TextEncoder().encode(str);
+        const utf8Bytes = new TextEncoder ().encode (str);
         // Copy the bytes from the UTF-8 array to the bytes32 string, up to 32 bytes
         for (let i = 0; i < utf8Bytes.length && i < 32; i++) {
-          const hexByte = utf8Bytes[i].toString(16).padStart(2, '0');
-          bytes32 = bytes32.substring(0, 2 + (i * 2)) + hexByte + bytes32.substring(4 + (i * 2));
+            const hexByte = utf8Bytes[i].toString (16).padStart (2, '0');
+            bytes32 = bytes32.substring (0, 2 + (i * 2)) + hexByte + bytes32.substring (4 + (i * 2));
         }
         return bytes32;
     }
-      
+
     createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress) {
         return {
             'primaryType': 'OrderParams',
@@ -1047,16 +1043,16 @@ module.exports = class derivadex extends Exchange {
                     { 'name': 'stopPrice', 'type': 'uint256' },
                 ],
             },
-            'domain': createEIP712DomainSeperator(chainId, verifyingContractAddress),
+            'domain': this.createEIP712DomainSeperator (chainId, verifyingContractAddress),
             'message': {
-                'symbol': encodeStringIntoBytes32(orderIntent.symbol),
-                'strategy': encodeStringIntoBytes32(orderIntent.strategy),
-                'side': orderSideToInt(orderIntent.side).toString(),
-                'orderType': orderTypeToInt(orderIntent.orderType).toString(),
+                'symbol': this.encodeStringIntoBytes32 (orderIntent.symbol),
+                'strategy': this.encodeStringIntoBytes32 (orderIntent.strategy),
+                'side': this.orderSideToInt (orderIntent.side).toString (),
+                'orderType': this.orderTypeToInt (orderIntent.orderType).toString (),
                 'nonce': orderIntent.nonce,
-                'amount': orderIntent.amount.toString(),
-                'price': orderIntent.price.toString(),
-                'stopPrice': orderIntent.stopPrice.toString(),
+                'amount': orderIntent.amount.toString (),
+                'price': orderIntent.price.toString (),
+                'stopPrice': orderIntent.stopPrice.toString (),
             },
         };
     }
@@ -1076,37 +1072,44 @@ module.exports = class derivadex extends Exchange {
         // Eventually, if we want to replace eip712 signing each request by an authentication key,
         // we can use pseudo-randomness with a seed to let users backup their key.
         // For now, users don't care about their key after sending each request.
-        const secretKeyBytes = new Uint8Array (randomBytes (32));
+        const secretKeyBytes = new Uint8Array (this.randomBytes (32));
         // Unique single-use nonce for each encryption.
         // It is important to never repeat nonces.
-        const nonceBytes = new Uint8Array (randomBytes (12));
+        const nonceBytes = new Uint8Array (this.randomBytes (12));
         const json = JSON.stringify (payload);
         const buffer = Buffer.from (json);
         // We use native Uint8Array where possible to avoid unnecessary string operations.
         const requestBytes = new Uint8Array (buffer);
-        const encryptedBytes = encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes);
-        return hexlify (encryptedBytes);
+        const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes);
+        return this.hexlify (encryptedBytes);
     }
 
     encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes) {
-        const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, nonceBytes);
-        let enc = cipher.update(requestBytes, 'utf8', 'base64');
-        enc += cipher.final('base64');
-        return [enc, nonceBytes, cipher.getAuthTag()];
+        // const key = crypto.pbkdf2Sync(password, salt, 10000, 32, 'Keccak-256');
+        const privateKey = secp256k1.privateKeyCreate (secretKeyBytes);
+        const compressedPublicKey = secp256k1.publicKeyConvert (privateKey.publicKey, true);
+        const sharedSecret = secp256k1.ecdh (encryptionKey, secretKeyBytes);
+        const sharedSecretBytes = Buffer.from (sharedSecret);
+        const derivedKey = this.hash (sharedSecretBytes, 'keccak', 'binary').subarray (0, 16);
+        const cipher = crypto.createCipheriv ('aes-256-gcm', derivedKey, nonceBytes);
+        let ciphertext = cipher.update (requestBytes, 'utf8', 'base64');
+        ciphertext += cipher.final ('base64');
+        // we should not need to append ciphertext + ciphertext.getAuthTag() because it should already be included by final()
+        return ciphertext + nonceBytes + compressedPublicKey;
     }
 
     hexlify (input) {
         if (typeof input === 'number') {
-          return `0x${input.toString (16)}`;
+            return `0x${input.toString (16)}`;
         }
         if (typeof input === 'string') {
-          return `0x${Buffer.from (input, 'utf8').toString ('hex')}`;
+            return `0x${Buffer.from (input, 'utf8').toString ('hex')}`;
         }
         if (Buffer.isBuffer (input)) {
-          return `0x${input.toString ('hex')}`;
+            return `0x${input.toString ('hex')}`;
         }
         if (typeof input === 'object' && input.toHexString) {
-          return input.toHexString ();
+            return input.toHexString ();
         }
     }
 
