@@ -951,7 +951,7 @@ module.exports = class derivadex extends Exchange {
 
     addDiscriminant (traderAddress) {
         // TODO: look up / resolve discriminant from chainId -- hard coding 00 for ethereum for now
-        const prefix = '00x';
+        const prefix = '0x00';
         return `${prefix}${traderAddress.slice (2)}`;
     }
 
@@ -1085,7 +1085,6 @@ module.exports = class derivadex extends Exchange {
     }
 
     encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes) {
-        // const key = crypto.pbkdf2Sync(password, salt, 10000, 32, 'Keccak-256');
         const privateKey = secp256k1.privateKeyCreate (secretKeyBytes);
         const compressedPublicKey = secp256k1.publicKeyConvert (privateKey.publicKey, true);
         const sharedSecret = secp256k1.ecdh (encryptionKey, secretKeyBytes);
