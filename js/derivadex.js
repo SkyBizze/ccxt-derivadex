@@ -8,6 +8,7 @@ const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
 const Precise = require ('./base/Precise');
+const CryptoJS = require ('./static_dependencies/crypto-js/crypto-js');
 // const { AuthenticationError, BadRequest, DDoSProtection, ExchangeError, ExchangeNotAvailable, InsufficientFunds, InvalidOrder, OrderNotFound, PermissionDenied, ArgumentsRequired, BadSymbol } = require ('./base/errors');
 // const Precise = require ('./base/Precise');
 
@@ -919,9 +920,10 @@ module.exports = class derivadex extends Exchange {
          * @returns {object} an [order structure]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
          */
         await this.loadMarkets ();
-        const market = this.market (symbol);
+        // const market = this.market (symbol);
         const orderType = this.capitalize (type);
-        const orderIntent = this.getOperatorSubmitOrderIntent (market, side, orderType, amount, price);
+        const orderIntent = this.getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price);
+        console.log ('createOrder orderIntent is: ', orderIntent);
         return await this.getOperatorResponseForOrderIntent (orderIntent, 'Order'); // TODO: this should return an Order obj
     }
 
@@ -944,18 +946,22 @@ module.exports = class derivadex extends Exchange {
         const typedDataHash = this.hash (JSON.stringify (typedData), 'keccak', 'hex');
         const signature = this.signMessageString (typedDataHash, this.privateKey);
         orderIntent['signature'] = signature;
+        orderIntent['amount'] = orderIntent['amount'].toString ();
+        orderIntent['price'] = orderIntent['price'].toString ();
+        orderIntent['stopPrice'] = orderIntent['stopPrice'].toString ();
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
         // get the 21 byte trader address
         const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
         // make the request
-        return await this.publicv2GetRequest ({ 'traderAddress': twentyOneByteAccount, 'encryptedIntent': encryptedIntent });
+        return await this.v2GetRequest ({ 'traderAddress': twentyOneByteAccount, 'encryptedIntent': encryptedIntent });
     }
 
     addDiscriminant (traderAddress) {
         // TODO: look up / resolve discriminant from chainId -- hard coding 00 for ethereum for now
         const prefix = '0x00';
+        console.log ('before addDiscriminant returns', traderAddress, `${prefix}${traderAddress.slice (2)}`);
         return `${prefix}${traderAddress.slice (2)}`;
     }
 
@@ -1077,30 +1083,48 @@ module.exports = class derivadex extends Exchange {
         // Eventually, if we want to replace eip712 signing each request by an authentication key,
         // we can use pseudo-randomness with a seed to let users backup their key.
         // For now, users don't care about their key after sending each request.
-        const secretKeyBytes = new Uint8Array (this.randomBytes (32));
+        const secretKeyBytes = new Uint8Array (crypto.randomBytes (32));
         // Unique single-use nonce for each encryption.
         // It is important to never repeat nonces.
-        const nonceBytes = new Uint8Array (this.randomBytes (12));
+        const nonceBytes = new Uint8Array (crypto.randomBytes (12));
         const json = JSON.stringify (payload);
         const buffer = Buffer.from (json);
         // We use native Uint8Array where possible to avoid unnecessary string operations.
         const requestBytes = new Uint8Array (buffer);
-        const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes);
+        const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
+        const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
+        const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
         return this.hexlify (encryptedBytes);
     }
 
-    encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes) {
-        console.log ('about to start encrypt with params', requestBytes, secretKeyBytes, encryptionKey, nonceBytes);
-        const privateKey = secp256k1.privateKeyCreate (secretKeyBytes);
-        const compressedPublicKey = secp256k1.publicKeyConvert (privateKey.publicKey, true);
-        const sharedSecret = secp256k1.ecdh (encryptionKey, secretKeyBytes);
-        const sharedSecretBytes = Buffer.from (sharedSecret);
-        const derivedKey = this.hash (sharedSecretBytes, 'keccak', 'binary').subarray (0, 16);
+    encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes) {
+        console.log ('about to start encrypt with params', encryptionKeyBytes);
+        const publicKey = secp256k1.publicKeyCreate (secretKeyBytes);
+        const compressedPublicKey = secp256k1.publicKeyConvert (publicKey, true);
+        const sharedSecret = secp256k1.ecdh (encryptionKeyBytes, secretKeyBytes);
+        // console.log ('shared secret', sharedSecret);
+        // const sharedSecretBytes = Buffer.from (sharedSecret);
+        // console.log ('sharedSecretBytes', sharedSecretBytes);
+        // const keccakHash = this.hash (sharedSecretBytes, 'keccak', 'binary');
+        // const keccakHash = this.hash (sharedSecret, 'keccak', 'binary');
+        // console.log ('keccak result of', keccakHash);
+        // const derivedKey = keccakHash['words'].subarray (0, 16);
+        const derivedKey = this.testHelper (sharedSecret);
+        console.log ('got this derived key', derivedKey);
         const cipher = crypto.createCipheriv ('aes-256-gcm', derivedKey, nonceBytes);
         let ciphertext = cipher.update (requestBytes, 'utf8', 'base64');
         ciphertext += cipher.final ('base64');
         // we should not need to append ciphertext + ciphertext.getAuthTag() because it should already be included by final()
         return ciphertext + nonceBytes + compressedPublicKey;
+    }
+
+    testHelper (shared_pub) {
+        // Create a 256-bit keccak hash object
+        const keccak256 = CryptoJS.algo.SHA3.create ({ 'outputLength': 256 });
+        // Update the hash with the contents of the shared_pub
+        keccak256.update (CryptoJS.enc.Hex.parse (shared_pub.toString ('hex')));
+        // Finalize the hash and extract the first 16 bytes (128 bits)
+        return keccak256.finalize ().toString ().substring (0, 32);
     }
 
     hexlify (input) {
