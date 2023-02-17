@@ -7,6 +7,7 @@ const secp256k1 = require ('secp256k1');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
+const Precise = require ('./base/Precise');
 // const { AuthenticationError, BadRequest, DDoSProtection, ExchangeError, ExchangeNotAvailable, InsufficientFunds, InvalidOrder, OrderNotFound, PermissionDenied, ArgumentsRequired, BadSymbol } = require ('./base/errors');
 // const Precise = require ('./base/Precise');
 
@@ -88,6 +89,7 @@ module.exports = class derivadex extends Exchange {
                     // 'v2': 'https://beta.derivadex.io/v2',
                     'v2': 'http://op1.ddx.one:15080/v2', // TODO: DELETE THIS
                     'op1': 'http://op1.ddx.one:15080/stats', // TODO: delete this before submitting
+                    'raw': 'http://op1.ddx.one:15080', // TODO: delete this before submitting
                 },
                 'logo': 'https://gitlab.com/dexlabs/assets/-/raw/main/light-round.png',
                 'api': {
@@ -137,7 +139,7 @@ module.exports = class derivadex extends Exchange {
                         'aggregations/collateral': 1,
                         'aggregations/volume': 1,
                         'markets/markets': 1,
-                        'markets/order_book/L2/{symbol}': 1,
+                        'markets/order_book/L2': 1,
                         'markets/tickers': 1,
                         'snapshot/addresses': 1,
                     },
@@ -147,6 +149,11 @@ module.exports = class derivadex extends Exchange {
                         'rest/ohlcv': 1,
                         'encryption-key': 1,
                         'request': 1,
+                    },
+                },
+                'raw': {
+                    'get': {
+                        'snapshot/addresses': 1,
                     },
                 },
                 'private': {
@@ -396,11 +403,8 @@ module.exports = class derivadex extends Exchange {
         const params = {};
         params['symbol'] = symbol;
         params['depth'] = 1;
-        const request = {
-            'symbol': symbol,
-        };
         const [ orderBookResponse, tickerResponse ] = await Promise.all ([
-            this.publicGetMarketsOrderBookL2Symbol (this.extend (request, params)),
+            this.publicGetMarketsOrderBookL2 (params),
             this.publicGetMarketsTickers ({ 'symbol': symbol }),
         ]);
         const orderBookValue = orderBookResponse['value'];
@@ -926,8 +930,8 @@ module.exports = class derivadex extends Exchange {
         const scaledOrderIntent = requestType === 'Order' ? this.getScaledOrderIntent (orderIntent) : orderIntent;
         // get the order intent typed data
         const [ addressesResponse, encryptionKey ] = await Promise.all ([
-            this.publicGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
-            this.v2GetEncryptionkey (),
+            this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
+            this.v2GetEncryptionKey (),
         ]);
         const typedData = this.transformTypedDataForEthers (
             this.createOrderIntentTypedData (
@@ -967,9 +971,9 @@ module.exports = class derivadex extends Exchange {
             'side': side === 'buy' ? 'Bid' : 'Ask',
             'orderType': orderType,
             'nonce': this.asNonce (Date.now ()),
-            'amount': this.BigInt (amount),
-            'price': this.BigInt (price),
-            'stopPrice': this.BigInt (0),
+            'amount': new Precise (amount.toString ()),
+            'price': price === undefined ? new Precise ('0') : new Precise (price.toString ()),
+            'stopPrice': new Precise ('0'),
             'signature': '0x0',
         };
     }
@@ -986,7 +990,7 @@ module.exports = class derivadex extends Exchange {
 
     getScaledOrderIntent (intent) {
         const operatorDecimals = 6;
-        const operatorDecimalMultiplier = this.BigInt (10) ** operatorDecimals;
+        const operatorDecimalMultiplier = new Precise ((10 ** operatorDecimals).toString ());
         // TODO: resolve spread operator not working and use that instead
         return {
             'traderAddress': intent['traderAddress'],
@@ -995,9 +999,9 @@ module.exports = class derivadex extends Exchange {
             'side': intent['side'],
             'orderType': intent['orderType'],
             'nonce': intent['nonce'],
-            'amount': intent['amount'] * operatorDecimalMultiplier,
-            'price': intent['price'] * operatorDecimalMultiplier,
-            'stopPrice': intent['stopPrice'] * operatorDecimalMultiplier,
+            'amount': intent['amount'].mul (operatorDecimalMultiplier),
+            'price': intent['price'].mul (operatorDecimalMultiplier),
+            'stopPrice': intent['stopPrice'].mul (operatorDecimalMultiplier),
             'signature': intent['signature'],
         };
     }
@@ -1067,6 +1071,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     async encryptIntent (encryptionKey, payload) {
+        console.log ('encryptIntent with params', encryptionKey, payload);
         // Create an ephemeral ECDSA private key to encrypt the request.
         // Either create a new key for each request or reuse by storing in local storage.
         // Eventually, if we want to replace eip712 signing each request by an authentication key,
@@ -1085,6 +1090,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     encrypt (requestBytes, secretKeyBytes, encryptionKey, nonceBytes) {
+        console.log ('about to start encrypt with params', requestBytes, secretKeyBytes, encryptionKey, nonceBytes);
         const privateKey = secp256k1.privateKeyCreate (secretKeyBytes);
         const compressedPublicKey = secp256k1.publicKeyConvert (privateKey.publicKey, true);
         const sharedSecret = secp256k1.ecdh (encryptionKey, secretKeyBytes);
@@ -1114,7 +1120,7 @@ module.exports = class derivadex extends Exchange {
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
         const implodedPath = this.implodeParams (path, params);
-        let query = (api === 'v2' ? '' : '/api/') + (api === 'v2' ? '' : this.version) + '/' + implodedPath;
+        let query = ((api === 'v2' || api === 'raw') ? '' : '/api/') + ((api === 'v2' || api === 'raw') ? '' : this.version) + '/' + implodedPath;
         if (method === 'GET') {
             if (params['orderHash'] !== undefined) {
                 let orderHashParam = '';
@@ -1134,7 +1140,15 @@ module.exports = class derivadex extends Exchange {
                 params = this.omit (params, '_format');
             }
         }
-        const testApi = api === 'v2' ? 'v2' : 'op1'; // TODO: SWITCH TO MAINNET URL
+        // const testApi = api === 'v2' ? 'v2' : 'op1'; // TODO: SWITCH TO MAINNET URL
+        let testApi = '';
+        if (api === 'v2') {
+            testApi = 'v2';
+        } else if (api === 'raw') {
+            testApi = 'raw';
+        } else {
+            testApi = 'op1';
+        }
         const url = this.urls['test'][testApi] + query; // TODO: SWITCH TO MAINNET URL
         const isAuthenticated = this.checkRequiredCredentials (false);
         if (api === 'private' || (api === 'public' && isAuthenticated)) {
