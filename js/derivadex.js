@@ -4,6 +4,7 @@
 
 const crypto = require ('crypto');
 const secp256k1 = require ('secp256k1');
+const sigUtil = require ('eth-sig-util');
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
@@ -1168,7 +1169,6 @@ module.exports = class derivadex extends Exchange {
     addDiscriminant (traderAddress) {
         // TODO: look up / resolve discriminant from chainId -- hard coding 00 for ethereum for now
         const prefix = '0x00';
-        console.log ('before addDiscriminant returns', traderAddress, `${prefix}${traderAddress.slice (2)}`);
         return `${prefix}${traderAddress.slice (2)}`;
     }
 
@@ -1267,7 +1267,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress) {
-        return {
+        const test = {
             'primaryType': 'OrderParams',
             'types': {
                 'EIP712Domain': [
@@ -1293,12 +1293,15 @@ module.exports = class derivadex extends Exchange {
                 'strategy': this.encodeStringIntoBytes32 (orderIntent.strategy),
                 'side': this.orderSideToInt (orderIntent.side).toString (),
                 'orderType': this.orderTypeToInt (orderIntent.orderType).toString (),
-                'nonce': orderIntent.nonce,
+                'nonce': orderIntent.nonce, // REMOVE THIS COMMENT AFTER TESTING
+                // 'nonce': '0x0000000000000000000000000000000000000000000000000000018662009b4b',
                 'amount': orderIntent.amount.toString (),
                 'price': orderIntent.price.toString (),
                 'stopPrice': orderIntent.stopPrice.toString (),
             },
         };
+        console.log ('createOrderIntentTypedData', JSON.stringify (test));
+        return test;
     }
 
     cancelOrderIntentTypedData (cancelIntent, chainId, verifyingContractAddress) {
