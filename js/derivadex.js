@@ -971,6 +971,7 @@ module.exports = class derivadex extends Exchange {
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
+        console.log ('encryptedIntent before retunr', encryptedIntent);
         // get the 21 byte trader address
         const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
         // make the request
@@ -1112,6 +1113,11 @@ module.exports = class derivadex extends Exchange {
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
+        console.log ('FINAL ENCRYPT BYTES', encryptedBytes);
+        console.log ('request bytes', requestBytes);
+        console.log ('secret bytes', secretKeyBytes);
+        console.log ('encryption key', encryptionKey);
+        console.log ('nonce bytes', nonceBytes);
         return this.hexlify (encryptedBytes);
     }
 
@@ -1133,7 +1139,13 @@ module.exports = class derivadex extends Exchange {
         let ciphertext = cipher.update (requestBytes, 'utf8', 'base64');
         ciphertext += cipher.final ('base64');
         // we should not need to append ciphertext + ciphertext.getAuthTag() because it should already be included by final()
-        return ciphertext + nonceBytes + compressedPublicKey;
+        console.log ('cipher text is ', ciphertext);
+        console.log ('rest is ', nonceBytes + compressedPublicKey);
+        console.log ('u int conversion', Uint8Array.from (ciphertext));
+        const cigherBytes = Buffer.from (ciphertext, 'base64');
+        console.log ('in comparison', cigherBytes);
+        // return ciphertext + nonceBytes + compressedPublicKey;
+        return cigherBytes + nonceBytes + compressedPublicKey;
     }
 
     testHelper (shared_pub) {
