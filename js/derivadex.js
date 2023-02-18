@@ -4,6 +4,7 @@
 
 const crypto = require ('crypto');
 const secp256k1 = require ('secp256k1');
+const sigUtil = require ('eth-sig-util');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
@@ -935,17 +936,35 @@ module.exports = class derivadex extends Exchange {
             this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
             this.v2GetEncryptionKey (),
         ]);
-        const typedData = this.transformTypedDataForEthers (
-            this.createOrderIntentTypedData (
-                scaledOrderIntent,
-                addressesResponse['chainId'],
-                addressesResponse['addresses']['derivaDEXAddress']
-            )
+        console.log ('addresses', addressesResponse);
+        const orderIntentData = this.createOrderIntentTypedData (
+            scaledOrderIntent,
+            // addressesResponse['chainId'],
+            100,
+            // addressesResponse['addresses']['derivaDEXAddress']
+            '0x48bacb9266a570d521063ef5dd96e61686dbe788'
         );
+        const typedData = this.transformTypedDataForEthers (orderIntentData);
+        console.log ('ccxt typed data', typedData);
         // get the order signature
-        const typedDataHash = this.hash (JSON.stringify (typedData), 'keccak', 'hex');
-        const signature = this.signMessageString (typedDataHash, this.privateKey);
-        orderIntent['signature'] = signature;
+        // const typedDataHash = this.hash (JSON.stringify ({
+        //     'domain': typedData.domain,
+        //     'types': typedData.types,
+        //     'value': typedData.value,
+        // }), 'keccak', 'hex');
+        // console.log ('typed data obj', {
+        //     'domain': typedData.domain,
+        //     'types': typedData.types,
+        //     'value': typedData.value,
+        // });
+        // console.log ('typedDataHash', typedDataHash);
+        // const signature = this.signMessageString (typedDataHash, this.privateKey);
+        console.log ('about to use sig util', Buffer.from (this.privateKey, 'hex'));
+        const altsignature = sigUtil.signTypedData (
+            Buffer.from (this.privateKey, 'hex'),
+            { 'data': orderIntentData }
+        );
+        orderIntent['signature'] = altsignature;
         orderIntent['amount'] = orderIntent['amount'].toString ();
         orderIntent['price'] = orderIntent['price'].toString ();
         orderIntent['stopPrice'] = orderIntent['stopPrice'].toString ();
@@ -961,7 +980,6 @@ module.exports = class derivadex extends Exchange {
     addDiscriminant (traderAddress) {
         // TODO: look up / resolve discriminant from chainId -- hard coding 00 for ethereum for now
         const prefix = '0x00';
-        console.log ('before addDiscriminant returns', traderAddress, `${prefix}${traderAddress.slice (2)}`);
         return `${prefix}${traderAddress.slice (2)}`;
     }
 
@@ -1021,19 +1039,16 @@ module.exports = class derivadex extends Exchange {
     }
 
     encodeStringIntoBytes32 (str) {
-        let bytes32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
-        // Convert the string to a UTF-8 byte array
-        const utf8Bytes = new TextEncoder ().encode (str);
-        // Copy the bytes from the UTF-8 array to the bytes32 string, up to 32 bytes
-        for (let i = 0; i < utf8Bytes.length && i < 32; i++) {
-            const hexByte = utf8Bytes[i].toString (16).padStart (2, '0');
-            bytes32 = bytes32.substring (0, 2 + (i * 2)) + hexByte + bytes32.substring (4 + (i * 2));
-        }
-        return bytes32;
+        const encoder = new TextEncoder ();
+        const encodedStr = encoder.encode (str);
+        const lengthHex = encodedStr.length.toString (16);
+        const paddedLengthHex = lengthHex.padStart (2, '0');
+        const bytes32Str = '0x' + paddedLengthHex + Buffer.from (encodedStr).toString ('hex').padEnd (62, '0');
+        return bytes32Str;
     }
 
     createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress) {
-        return {
+        const test = {
             'primaryType': 'OrderParams',
             'types': {
                 'EIP712Domain': [
@@ -1059,12 +1074,15 @@ module.exports = class derivadex extends Exchange {
                 'strategy': this.encodeStringIntoBytes32 (orderIntent.strategy),
                 'side': this.orderSideToInt (orderIntent.side).toString (),
                 'orderType': this.orderTypeToInt (orderIntent.orderType).toString (),
-                'nonce': orderIntent.nonce,
+                'nonce': orderIntent.nonce, // REMOVE THIS COMMENT AFTER TESTING
+                // 'nonce': '0x0000000000000000000000000000000000000000000000000000018662009b4b',
                 'amount': orderIntent.amount.toString (),
                 'price': orderIntent.price.toString (),
                 'stopPrice': orderIntent.stopPrice.toString (),
             },
         };
+        console.log ('createOrderIntentTypedData', JSON.stringify (test));
+        return test;
     }
 
     createEIP712DomainSeperator (chainId, verifyingContractAddress) {
@@ -1098,7 +1116,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes) {
-        console.log ('about to start encrypt with params', encryptionKeyBytes);
+        // console.log ('about to start encrypt with params', encryptionKeyBytes);
         const publicKey = secp256k1.publicKeyCreate (secretKeyBytes);
         const compressedPublicKey = secp256k1.publicKeyConvert (publicKey, true);
         const sharedSecret = secp256k1.ecdh (encryptionKeyBytes, secretKeyBytes);
@@ -1110,7 +1128,7 @@ module.exports = class derivadex extends Exchange {
         // console.log ('keccak result of', keccakHash);
         // const derivedKey = keccakHash['words'].subarray (0, 16);
         const derivedKey = this.testHelper (sharedSecret);
-        console.log ('got this derived key', derivedKey);
+        // console.log ('got this derived key', derivedKey);
         const cipher = crypto.createCipheriv ('aes-256-gcm', derivedKey, nonceBytes);
         let ciphertext = cipher.update (requestBytes, 'utf8', 'base64');
         ciphertext += cipher.final ('base64');
