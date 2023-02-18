@@ -1396,6 +1396,11 @@ module.exports = class derivadex extends Exchange {
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
+        console.log ('FINAL ENCRYPT BYTES', encryptedBytes);
+        console.log ('request bytes', requestBytes);
+        console.log ('secret bytes', secretKeyBytes);
+        console.log ('encryption key', encryptionKey);
+        console.log ('nonce bytes', nonceBytes);
         return this.hexlify (encryptedBytes);
     }
 
