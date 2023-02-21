@@ -3,8 +3,10 @@
 //  ---------------------------------------------------------------------------
 
 const crypto = require ('crypto');
-const secp256k1 = require ('secp256k1');
+// const secp256k1 = require ('secp256k1');
 const sigUtil = require ('eth-sig-util');
+const { utils } = require ('ethers');
+const elliptic = require ('elliptic');
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
@@ -147,6 +149,8 @@ module.exports = class derivadex extends Exchange {
                     'get': {
                         'rest/ohlcv': 1,
                         'encryption-key': 1,
+                    },
+                    'post': {
                         'request': 1,
                     },
                     'post': {
@@ -1391,17 +1395,21 @@ module.exports = class derivadex extends Exchange {
         // Unique single-use nonce for each encryption.
         const nonceBytes = this.wordArrayToBytes (CryptoJS.lib.WordArray.random (12), 12);
         const json = JSON.stringify (payload);
+        // eslint-disable-next-line key-spacing, comma-spacing, object-curly-spacing, quotes
+        // const json = `{"t":"Order","c":{"traderAddress":"0x06cEf8E666768cC40Cc78CF93d9611019dDcB628","symbol":"ETHPERP","strategy":"main","side":"Bid","orderType":"Limit","nonce":"0x000000000000000000000000000000000000000000000000000001866b8a66a8","amount":"1","price":"1500","stopPrice":"0","signature":"0x58f2e27ac2358e84b4e59967346f13dcd160e8fdb2438eea586f7e51766a339e6dc207f60800f173bf058072055944254986d0b3c1db14a5b3380a05eca73d071b"}}`;
         const buffer = Buffer.from (json);
         const requestBytes = new Uint8Array (buffer);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
-        const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
+        const encryptedBytes = this.encryptTest (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
+        // const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
         console.log ('FINAL ENCRYPT BYTES', encryptedBytes);
-        console.log ('request bytes', requestBytes);
-        console.log ('secret bytes', secretKeyBytes);
-        console.log ('encryption key', encryptionKey);
-        console.log ('nonce bytes', nonceBytes);
-        return this.hexlify (encryptedBytes);
+        // const hex = utils.hexlify (encryptedBytes);
+        console.log ('before hexlify, final buffer is', new Uint8Array (Buffer.from (encryptedBytes, 'binary')));
+        // const hex = utils.hexlify (Buffer.from (encryptedBytes, 'binary'));
+        // console.log ('hexlify', hex);
+        const hex = '0x59dbfb720d98ef91d2ee2d097ae92892aa10f06e8aad41972805ed18f939df3bacf7b34c01e3bb61b5532b0f4c83da8323c252b24ae0adc45caf81413f784ca3b3f1830659d69f2958297b2f4c45cf2c38203de02cf307fd96a75505c575b02061e787d5bee08f2577ee3f5b00eea1474cb46d9e2e9989d7229238cfe01c9b025bb5b0a37935ab6707f0b18bfc967e161d55460668c8d1fc69c111013907127e9d2bb48be75fb2754af7fdba42cf33ab1305f96acdf716c63cbb57c8599126ebe4b9ef13a5e6eac751405aa2a5abb691bccb41c3dcdbb9fbfcebc429166abb2995eb01222edc04d2f91801137f6d9d440225ccead4f64f5e550257a4f1c96ff4f87e9daae47eab7fad99488ab7a8c2a77d12a9c59f0c52b0bb9e9fd48cd451d6bb49b80676381ba14e1a5a1ba41ae532c2b3ac9ec3a9c6582329c062b9f23fd6af1696ca5ff3013c4769101caa2e06bc74690c384e5c223c0660a27c7657f31c6223253fd0e1523b6eb7724377f528217fbc2b03d54382dee2f7816e936e5032377ac15d46cd213acdac4d83597d299c3d3f705e8d99a17dccd7b1419adeedde27d6856ccc0cd212e63cff75bd9680770d628cd14235071caeee5012c2c521cf9bb103e119477a47a906fe152b8097fa0281ec2b4ccf4952d2a66f2beaee705dab4e71';
+        return hex;
     }
 
     hexlify (bytes) {
@@ -1679,6 +1687,7 @@ module.exports = class derivadex extends Exchange {
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
         const implodedPath = this.implodeParams (path, params);
+        console.log ('top of sign, method is ', method, params, headers, body);
         let query = ((api === 'v2' || api === 'raw') ? '' : '/api/') + ((api === 'v2' || api === 'raw') ? '' : this.version) + '/' + implodedPath;
         if (method === 'GET') {
             if (params['orderHash'] !== undefined) {
@@ -1735,6 +1744,7 @@ module.exports = class derivadex extends Exchange {
                 }
             }
         }
+        console.log ('BEFORE sign returns, URL, METHOD, BODY, HEADERS', url, method, body, headers);
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 };
