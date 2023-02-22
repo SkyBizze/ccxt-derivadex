@@ -6,6 +6,7 @@ const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
 const { utils } = require ('ethers');
 const elliptic = require ('elliptic');
+const axios = require ('axios');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
@@ -161,14 +162,6 @@ module.exports = class derivadex extends Exchange {
                         'snapshot/addresses': 1,
                     },
                 },
-                'private': {
-                    'get': {
-                        'apiKey': 5,
-                    },
-                    'post': {
-                        'apiKey': 5,
-                    },
-                },
             },
             // TODO: FILL OUT EXCEPTIONS
             'exceptions': {
@@ -180,6 +173,8 @@ module.exports = class derivadex extends Exchange {
             'requiredCredentials': {
                 'walletAddress': true,
                 'privateKey': true,
+                'apiKey': false,
+                'secret': false,
             },
             'precisionMode': TICK_SIZE,
             'options': {
@@ -950,11 +945,17 @@ module.exports = class derivadex extends Exchange {
         const typedData = this.transformTypedDataForEthers (orderIntentData);
         console.log ('ccxt typed data', typedData);
         // get the order signature
-        const typedDataHash = this.hash (JSON.stringify ({
+        const typedDataString = JSON.stringify ({
             'domain': typedData.domain,
             'types': typedData.types,
             'value': typedData.value,
-        }), 'keccak', 'hex');
+        });
+        const buffer = Buffer.from (typedDataString);
+        // We use native Uint8Array where possible to avoid unnecessary string operations.
+        const typeDataBytes = new Uint8Array (buffer);
+        // let typedDataBytes = this.base16ToBinary (ty);
+        // const typedDataBytes = this.remove0xPrefix (this.walletAddress);
+        const typedDataHash = this.hash (typeDataBytes, 'keccak', 'hex');
         // console.log ('typed data obj', {
         //     'domain': typedData.domain,
         //     'types': typedData.types,
@@ -974,11 +975,7 @@ module.exports = class derivadex extends Exchange {
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
-        // get the 21 byte trader address
-        const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
-        // make the request
-        const content = { 'traderAddress': twentyOneByteAccount, 'encryptedIntent': encryptedIntent };
-        console.log ('content', content);
+        // const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
         const uint8Array = new Uint8Array (Buffer.from (encryptedIntent.replace (/^0x/, ''), 'hex'));
         return await this.v2PostRequest (uint8Array);
     }
@@ -1054,7 +1051,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress) {
-        const test = {
+        return {
             'primaryType': 'OrderParams',
             'types': {
                 'EIP712Domain': [
@@ -1086,8 +1083,6 @@ module.exports = class derivadex extends Exchange {
                 'stopPrice': orderIntent.stopPrice.toString (),
             },
         };
-        console.log ('createOrderIntentTypedData', JSON.stringify (test));
-        return test;
     }
 
     createEIP712DomainSeperator (chainId, verifyingContractAddress) {
@@ -1115,11 +1110,11 @@ module.exports = class derivadex extends Exchange {
         const requestBytes = new Uint8Array (buffer);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
-        const encryptedBytes = this.encryptTest (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
+        const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
         return utils.hexlify (encryptedBytes);
     }
 
-    encryptTest (str, secretKey, encryptionKeyBytes, nonceBytes) {
+    encrypt (str, secretKey, encryptionKeyBytes, nonceBytes) {
         // Create a secp256k1 curve object
         const secp256k1 = elliptic.ec ('secp256k1');
         // Uint8Array-encoded network public key
@@ -1137,7 +1132,6 @@ module.exports = class derivadex extends Exchange {
         keccak256.update (CryptoJS.lib.WordArray.create (sharedPublicKeyCompressedBytes));
         const hash = keccak256.finalize ();
         const first16 = hash.words.slice (0, 4);
-        // const wordArray16 = CryptoJS.lib.WordArray.create (first16, 16);
         const derivedKey = new Uint8Array (16);
         for (let i = 0; i < 16; i++) {
             // eslint-disable-next-line no-bitwise
@@ -1154,6 +1148,11 @@ module.exports = class derivadex extends Exchange {
         const authTag = cipher.getAuthTag ().toString ('base64');
         const cipherBytes = new Uint8Array (Buffer.from (cipherText, 'base64'));
         const tagBytes = new Uint8Array (Buffer.from (authTag, 'base64'));
+        // let cipherText = cipher.update (dataToEncrypt, 'utf8', 'utf8');
+        // cipherText += cipher.final ('utf8');
+        // const authTag = cipher.getAuthTag ().toString ();
+        // const cipherBytes = new Uint8Array (cipherText);
+        // const tagBytes = new Uint8Array (authTag);
         const totalLength = cipherBytes.length + tagBytes.length + nonceBytes.length + compressedPublicKeyBytes.length;
         const concatenatedUint8Array = new Uint8Array (totalLength);
         let offset = 0;
@@ -1207,12 +1206,8 @@ module.exports = class derivadex extends Exchange {
             testApi = 'op1';
         }
         const url = this.urls['test'][testApi] + query; // TODO: SWITCH TO MAINNET URL
-        // const isAuthenticated = this.checkRequiredCredentials (false); TODO: uncomment this
-        const isAuthenticated = true;
-        if (api === 'private' || (api === 'public' && isAuthenticated) || api === 'v2') {
-            console.log ('inner if', isAuthenticated);
-            // this.checkRequiredCredentials (); TODO: UNCOMMENT THIS
-            console.log ('past credential check');
+        const isAuthenticated = this.checkRequiredCredentials ();
+        if (api === 'public' || (api === 'v2' && isAuthenticated)) {
             let auth = method + query;
             let expires = this.safeInteger (this.options, 'api-expires');
             headers = {
@@ -1221,16 +1216,18 @@ module.exports = class derivadex extends Exchange {
             expires = this.sum (this.seconds (), expires);
             expires = expires.toString ();
             auth += expires;
-            // headers['api-expires'] = expires;
             if (method === 'POST') {
-                console.log ('sign caught post');
-                console.log ('POST params', params);
-                body = this.json (params);
+                body = params;
                 headers = {
                     'Content-Type': 'application/octet-stream',
                 };
-                console.log ('URL, METHOD, BODY, HEADERS, TIMEOUT', 'http://op1.ddx.one:15080/v2/request', method, body, headers, { 'timeout': 8000 });
-                return { 'url': 'http://op1.ddx.one:15080/v2/request', 'method': method, 'body': body, 'headers': headers, 'timeout': 8000 };
+                // const timeout = { 'timeout': 8000 };
+                // return { 'url': 'http://op1.ddx.one:15080/v2/request', 'method': method, 'body': body, 'headers': headers, 'timeout': 8000 };
+                const OPERATOR_REQUEST_CONFIG = this.getOperatorRequestConfig ();
+                // const axiosPostObj = axios.post ('http://op1.ddx.one:15080/v2/request', body, OPERATOR_REQUEST_CONFIG);
+                // console.log ('fetch params in sign', url, method, body, headers, timeout, axiosPostObj);
+                // return axiosPostObj;
+                return axios.post ('http://op1.ddx.one:15080/v2/request', body, OPERATOR_REQUEST_CONFIG);
             }
             if (method === 'PUT' || method === 'DELETE') {
                 if (Object.keys (params).length) {
@@ -1241,7 +1238,6 @@ module.exports = class derivadex extends Exchange {
             console.log (auth);
             // headers['api-signature'] = this.hmac (this.encode (auth), this.encode (this.secret)); TODO: UNCOMMENT THIS
         }
-        console.log ('BEFORE sign returns, URL, METHOD, BODY, HEADERS', url, method, body, headers);
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 };
