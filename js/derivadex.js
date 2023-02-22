@@ -6,6 +6,7 @@ const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
 const { utils } = require ('ethers');
 const elliptic = require ('elliptic');
+const axios = require ('axios');
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
@@ -1270,7 +1271,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress) {
-        const test = {
+        return {
             'primaryType': 'OrderParams',
             'types': {
                 'EIP712Domain': [
@@ -1302,8 +1303,6 @@ module.exports = class derivadex extends Exchange {
                 'stopPrice': orderIntent.stopPrice.toString (),
             },
         };
-        console.log ('createOrderIntentTypedData', JSON.stringify (test));
-        return test;
     }
 
     cancelOrderIntentTypedData (cancelIntent, chainId, verifyingContractAddress) {
@@ -1396,7 +1395,7 @@ module.exports = class derivadex extends Exchange {
         const requestBytes = new Uint8Array (buffer);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
-        const encryptedBytes = this.encryptTest (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
+        const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
         return utils.hexlify (encryptedBytes);
     }
 
@@ -1453,6 +1452,11 @@ module.exports = class derivadex extends Exchange {
         const authTag = cipher.getAuthTag ().toString ('base64');
         const cipherBytes = new Uint8Array (Buffer.from (cipherText, 'base64'));
         const tagBytes = new Uint8Array (Buffer.from (authTag, 'base64'));
+        // let cipherText = cipher.update (dataToEncrypt, 'utf8', 'utf8');
+        // cipherText += cipher.final ('utf8');
+        // const authTag = cipher.getAuthTag ().toString ();
+        // const cipherBytes = new Uint8Array (cipherText);
+        // const tagBytes = new Uint8Array (authTag);
         const totalLength = cipherBytes.length + tagBytes.length + nonceBytes.length + compressedPublicKeyBytes.length;
         const concatenatedUint8Array = new Uint8Array (totalLength);
         let offset = 0;
@@ -1731,7 +1735,6 @@ module.exports = class derivadex extends Exchange {
                 }
             }
         }
-        console.log ('BEFORE sign returns, URL, METHOD, BODY, HEADERS', url, method, body, headers);
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 };
