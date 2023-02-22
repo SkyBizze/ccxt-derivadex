@@ -3,11 +3,9 @@
 //  ---------------------------------------------------------------------------
 
 const crypto = require ('crypto');
-// const secp256k1 = require ('secp256k1');
 const sigUtil = require ('eth-sig-util');
 const { utils } = require ('ethers');
 const elliptic = require ('elliptic');
-// const axios = require ('axios');
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
@@ -1677,7 +1675,6 @@ module.exports = class derivadex extends Exchange {
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
         const implodedPath = this.implodeParams (path, params);
-        console.log ('top of sign, method is ', method, params, headers, body);
         let query = ((api === 'v2' || api === 'raw') ? '' : '/api/') + ((api === 'v2' || api === 'raw') ? '' : this.version) + '/' + implodedPath;
         if (method === 'GET') {
             if (params['orderHash'] !== undefined) {
