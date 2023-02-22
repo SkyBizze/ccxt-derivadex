@@ -7,6 +7,7 @@ const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
 const { utils } = require ('ethers');
 const elliptic = require ('elliptic');
+// const axios = require ('axios');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
@@ -975,12 +976,16 @@ module.exports = class derivadex extends Exchange {
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
-        console.log ('encryptedIntent before retunr', encryptedIntent);
+        console.log ('encryptedIntent before return', encryptedIntent);
         // get the 21 byte trader address
         const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
         // make the request
         const content = { 'traderAddress': twentyOneByteAccount, 'encryptedIntent': encryptedIntent };
-        return await this.v2PostRequest ({ 't': 'ORDER_INTENT', 'c': content });
+        console.log ('content', content);
+        const uint8Array = Uint8Array.from (Buffer.from (encryptedIntent.replace (/^0x/, ''), 'hex'));
+        // const response = await axios.post ('http://op1.ddx.one:15080/v2/request', uint8Array, this.getOperatorRequestConfig ());
+        // console.log ('axios post resposne', response);
+        return await this.v2PostRequest (uint8Array);
         // const response = await this.fetch ('http://op1.ddx.one:15080/v2/request', {
         //     'method': 'POST',
         //     'headers': {
@@ -1089,8 +1094,7 @@ module.exports = class derivadex extends Exchange {
                 'strategy': this.encodeStringIntoBytes32 (orderIntent.strategy),
                 'side': this.orderSideToInt (orderIntent.side).toString (),
                 'orderType': this.orderTypeToInt (orderIntent.orderType).toString (),
-                'nonce': orderIntent.nonce, // REMOVE THIS COMMENT AFTER TESTING
-                // 'nonce': '0x0000000000000000000000000000000000000000000000000000018662009b4b',
+                'nonce': orderIntent.nonce,
                 'amount': orderIntent.amount.toString (),
                 'price': orderIntent.price.toString (),
                 'stopPrice': orderIntent.stopPrice.toString (),
@@ -1110,7 +1114,6 @@ module.exports = class derivadex extends Exchange {
     }
 
     async encryptIntent (encryptionKey, payload) {
-        console.log ('encryptIntent with params', encryptionKey, payload);
         // Create an ephemeral ECDSA private key to encrypt the request.
         // Either create a new key for each request or reuse by storing in local storage.
         // Eventually, if we want to replace eip712 signing each request by an authentication key,
@@ -1121,26 +1124,16 @@ module.exports = class derivadex extends Exchange {
         // It is important to never repeat nonces.
         const nonceBytes = new Uint8Array (crypto.randomBytes (12));
         const json = JSON.stringify (payload);
-        // eslint-disable-next-line key-spacing, comma-spacing, object-curly-spacing, quotes
-        // const json = `{"t":"Order","c":{"traderAddress":"0x06cEf8E666768cC40Cc78CF93d9611019dDcB628","symbol":"ETHPERP","strategy":"main","side":"Bid","orderType":"Limit","nonce":"0x000000000000000000000000000000000000000000000000000001866b8a66a8","amount":"1","price":"1500","stopPrice":"0","signature":"0x58f2e27ac2358e84b4e59967346f13dcd160e8fdb2438eea586f7e51766a339e6dc207f60800f173bf058072055944254986d0b3c1db14a5b3380a05eca73d071b"}}`;
         const buffer = Buffer.from (json);
         // We use native Uint8Array where possible to avoid unnecessary string operations.
         const requestBytes = new Uint8Array (buffer);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encryptTest (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
-        // const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
-        console.log ('FINAL ENCRYPT BYTES', encryptedBytes);
-        // const hex = utils.hexlify (encryptedBytes);
-        console.log ('before hexlify, final buffer is', new Uint8Array (Buffer.from (encryptedBytes, 'binary')));
-        // const hex = utils.hexlify (Buffer.from (encryptedBytes, 'binary'));
-        // console.log ('hexlify', hex);
-        const hex = '0x59dbfb720d98ef91d2ee2d097ae92892aa10f06e8aad41972805ed18f939df3bacf7b34c01e3bb61b5532b0f4c83da8323c252b24ae0adc45caf81413f784ca3b3f1830659d69f2958297b2f4c45cf2c38203de02cf307fd96a75505c575b02061e787d5bee08f2577ee3f5b00eea1474cb46d9e2e9989d7229238cfe01c9b025bb5b0a37935ab6707f0b18bfc967e161d55460668c8d1fc69c111013907127e9d2bb48be75fb2754af7fdba42cf33ab1305f96acdf716c63cbb57c8599126ebe4b9ef13a5e6eac751405aa2a5abb691bccb41c3dcdbb9fbfcebc429166abb2995eb01222edc04d2f91801137f6d9d440225ccead4f64f5e550257a4f1c96ff4f87e9daae47eab7fad99488ab7a8c2a77d12a9c59f0c52b0bb9e9fd48cd451d6bb49b80676381ba14e1a5a1ba41ae532c2b3ac9ec3a9c6582329c062b9f23fd6af1696ca5ff3013c4769101caa2e06bc74690c384e5c223c0660a27c7657f31c6223253fd0e1523b6eb7724377f528217fbc2b03d54382dee2f7816e936e5032377ac15d46cd213acdac4d83597d299c3d3f705e8d99a17dccd7b1419adeedde27d6856ccc0cd212e63cff75bd9680770d628cd14235071caeee5012c2c521cf9bb103e119477a47a906fe152b8097fa0281ec2b4ccf4952d2a66f2beaee705dab4e71';
-        return hex;
+        return utils.hexlify (encryptedBytes);
     }
 
     encryptTest (str, secretKey, encryptionKeyBytes, nonceBytes) {
-        console.log ('starting str is', str);
         // Create a secp256k1 curve object
         const secp256k1 = elliptic.ec ('secp256k1');
         // Uint8Array-encoded network public key
@@ -1152,30 +1145,28 @@ module.exports = class derivadex extends Exchange {
         const compressedPublicKeyBytes = myPublicKey.encodeCompressed ();
         // Compute the shared public key
         const sharedPublicKey = networkPublicKey.mul (myPrivateKey.priv);
-        // Create a SHA3-256 hash object and compute the derived key
-        const sharedPublicKeyHex = sharedPublicKey.encode ('hex', true);
-        // const sharedPublicKeyBytes = CryptoJS.enc.Hex.parse (sharedPublicKeyHex);
         const keccak256 = CryptoJS.algo.SHA3.create ({ 'outputLength': 256 });
-        keccak256.update (sharedPublicKeyHex);
-        const derivedKeyHex = keccak256.finalize ().toString ();
-        // Convert the derived key hex to a buffer of 32 bytes
-        const derivedKey = Buffer.from (derivedKeyHex.substr (0, 64), 'hex');
-        const cipher = crypto.createCipheriv ('aes-256-gcm', derivedKey, nonceBytes);
+        const sharedPublicKeyCompressed = sharedPublicKey.encodeCompressed ();
+        const sharedPublicKeyCompressedBytes = new Uint8Array (sharedPublicKeyCompressed);
+        keccak256.update (CryptoJS.lib.WordArray.create (sharedPublicKeyCompressedBytes));
+        const hash = keccak256.finalize ();
+        const first16 = hash.words.slice (0, 4);
+        const wordArray16 = CryptoJS.lib.WordArray.create (first16, 16);
+        const derivedKey = new Uint8Array (16);
+        for (let i = 0; i < 16; i++) {
+            // eslint-disable-next-line no-bitwise
+            const byte = (wordArray16.words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
+            derivedKey[i] = byte;
+        }
+        console.log (derivedKey);
+        const cipher = crypto.createCipheriv ('aes-128-gcm', derivedKey, nonceBytes);
         const encodedMessage = Buffer.from (str, 'utf8');
         const messageLength = Buffer.alloc (4);
         messageLength.writeUInt32BE (encodedMessage.length, 0);
         const dataToEncrypt = Buffer.concat ([ messageLength, encodedMessage ]);
-        console.log ('padded data to encrypt', dataToEncrypt);
         let cipherText = cipher.update (dataToEncrypt, 'utf8', 'base64');
         cipherText += cipher.final ('base64');
-        console.log ('initial cipher text', cipherText);
         const authTag = cipher.getAuthTag ().toString ('base64');
-        console.log ('auth tag', authTag, cipher.getAuthTag ());
-        const cipherTextWithTag = cipherText + authTag;
-        console.log ('nonce', nonceBytes);
-        const cipherTextWithTagAndNonce = cipherTextWithTag + Buffer.from (nonceBytes, 'base64');
-        const finalCipher = cipherTextWithTagAndNonce + Buffer.from (compressedPublicKeyBytes, 'base64');
-        console.log ('final cipher', finalCipher);
         const cipherBytes = new Uint8Array (Buffer.from (cipherText, 'base64'));
         const tagBytes = new Uint8Array (Buffer.from (authTag, 'base64'));
         const totalLength = cipherBytes.length + tagBytes.length + nonceBytes.length + compressedPublicKeyBytes.length;
@@ -1188,96 +1179,15 @@ module.exports = class derivadex extends Exchange {
         concatenatedUint8Array.set (nonceBytes, offset);
         offset += nonceBytes.length;
         concatenatedUint8Array.set (compressedPublicKeyBytes, offset);
-        console.log ('cipher bytes, tag bytes, key bytes, full bytes', cipherBytes, tagBytes, compressedPublicKeyBytes, concatenatedUint8Array);
-        this.decrypt (concatenatedUint8Array, nonceBytes, cipher.getAuthTag (), derivedKey);
-        // return finalCipher; // this is base64 return type
         return concatenatedUint8Array;
     }
 
-    encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes) {
-        // const publicKey = secp256k1.publicKeyCreate (secretKeyBytes);
-        // const compressedPublicKey = secp256k1.publicKeyConvert (publicKey, true);
-        // const sharedSecret = secp256k1.ecdh (encryptionKeyBytes, secretKeyBytes);
-        // const derivedKey = this.testHelper (sharedSecret);
-        // Create a secp256k1 curve object
-        const secp256k1 = elliptic.ec ('secp256k1');
-        // Uint8Array-encoded network public key
-        const networkPublicKey = secp256k1.keyFromPublic (encryptionKeyBytes).getPublic ();
-        // Create a PrivateKey object from the secret key
-        const myPrivateKey = secp256k1.keyFromPrivate (secretKeyBytes);
-        // Get the corresponding public key
-        const myPublicKey = myPrivateKey.getPublic ();
-        const myPublicKeyCompressed = myPublicKey.encodeCompressed ('array');
-        // Compute the shared public key
-        const sharedPublicKey = networkPublicKey.mul (myPrivateKey.priv);
-        // Calculate derived key using Keccak-256 hash
-        // Compute the SHA-3 hash of the shared public key
-        const sharedPublicKeyHex = sharedPublicKey.encode ('hex', true);
-        const sharedPublicKeyBytes = CryptoJS.enc.Hex.parse (sharedPublicKeyHex);
-        const keccak256 = CryptoJS.algo.SHA3.create ({ 'outputLength': 256 });
-        keccak256.update (sharedPublicKeyBytes);
-        const derivedKeyBytes = keccak256.finalize ().toString (CryptoJS.enc.Hex).slice (0, 32);
-        const cipher = crypto.createCipheriv ('aes-256-gcm', derivedKeyBytes, nonceBytes);
-        // const cipher = crypto.createCipheriv ('aes-256-gcm', derivedKey, nonceBytes);
-        // Create a new buffer that contains the length of the message in bytes,
-        // followed by the message itself
-        const messageLength = Buffer.alloc (4);
-        messageLength.writeUInt32BE (requestBytes.length, 0);
-        // const messageWithLength = Buffer.concat ([ messageLength, Buffer.from (requestBytes) ]);
-        let ciphertext = cipher.update (requestBytes, 'utf8', 'base64');
-        ciphertext += cipher.final ('base64');
-        // let ciphertext = cipher.update (messageWithLength, 'binary', 'base64');
-        // ciphertext += cipher.final ('base64');
-        const tag = cipher.getAuthTag ();
-        // this.decrypt (ciphertext, nonceBytes, tag, secretKeyBytes);
-        const cipherBuffer = Buffer.from (ciphertext, 'base64');
-        // console.log ('cypher bytes', cipherBuffer);
-        const cipherBytes = new Uint8Array (cipherBuffer);
-        // console.log ('cypher bytes', cipherBytes);
-        const tagbuffer = Buffer.from (tag);
-        const tagBytes = new Uint8Array (tagbuffer);
-        // console.log ('cypher tag bytes', tagBytes);
-        // console.log ('compressed pub key', compressedPublicKey);
-        // const uncompressedPublicKey = secp256k1.publicKeyConvert (publicKey, false);
-        // console.log ('UNcompressed pub key', uncompressedPublicKey);
-        // const totalLength = cipherBytes.length + tagBytes.length + nonceBytes.length + compressedPublicKey.length;
-        const totalLength = cipherBytes.length + tagBytes.length + nonceBytes.length + myPublicKeyCompressed.length;
-        const concatenatedUint8Array = new Uint8Array (totalLength);
-        let offset = 0;
-        concatenatedUint8Array.set (cipherBytes, offset);
-        offset += cipherBytes.length;
-        concatenatedUint8Array.set (tagBytes, offset);
-        offset += tagBytes.length;
-        concatenatedUint8Array.set (nonceBytes, offset);
-        offset += nonceBytes.length;
-        // concatenatedUint8Array.set (compressedPublicKey, offset);
-        concatenatedUint8Array.set (myPublicKeyCompressed, offset);
-        return concatenatedUint8Array;
-        // return ciphertext + nonceBytes + compressedPublicKey;
-        // const concat = Uint8Array.from ([ cipherBytes, nonceBytes, compressedPublicKey ]);
-        // return concat;
-        // return cipherBytes + nonceBytes + compressedPublicKey;
-    }
-
-    decrypt (enc, iv, authTag, key) {
-        console.log ('entered decrypt function', enc);
-        const hexEnc = utils.hexlify (Buffer.from (enc, 'base64'));
-        console.log ('Encrypted in hex:', hexEnc);
-        const decipher = crypto.createDecipheriv ('aes-256-gcm', key, iv);
-        decipher.setAuthTag (authTag);
-        const str = decipher.update (enc, 'binary', 'utf8');
-        console.log ('before decrypt final', str);
-        // str += decipher.final ('utf8');
-        // console.log ('DECRYPT', str);
-    }
-
-    testHelper (shared_pub) {
-        // Create a 256-bit keccak hash object
-        const keccak256 = CryptoJS.algo.SHA3.create ({ 'outputLength': 256 });
-        // Update the hash with the contents of the shared_pub
-        keccak256.update (CryptoJS.enc.Hex.parse (shared_pub.toString ('hex')));
-        // Finalize the hash and extract the first 16 bytes (128 bits)
-        return keccak256.finalize ().toString ().substring (0, 32);
+    getOperatorRequestConfig () {
+        return {
+            'headers': { 'Content-Type': 'application/octet-stream' },
+            'responseType': 'text',
+            'timeout': 8000,
+        };
     }
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
@@ -1333,6 +1243,12 @@ module.exports = class derivadex extends Exchange {
                 console.log ('sign caught post');
                 console.log ('POST params', params);
                 body = this.json (params);
+                headers = {
+                    'Content-Type': 'application/octet-stream',
+                };
+                const responseType = 'text';
+                console.log ('BEFORE sign returns, URL, METHOD, BODY, HEADERS', 'http://op1.ddx.one:15080/v2/request', method, body, headers);
+                return { 'url': 'http://op1.ddx.one:15080/v2/request', 'method': method, 'body': body, 'headers': headers, 'responseType': responseType, 'timeout': 8000 };
             }
             if (method === 'PUT' || method === 'DELETE') {
                 if (Object.keys (params).length) {
