@@ -4,7 +4,6 @@
 
 const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
-const { utils } = require ('ethers');
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
@@ -1394,7 +1393,18 @@ module.exports = class derivadex extends Exchange {
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
-        return utils.hexlify (encryptedBytes);
+        return this.hexlify (encryptedBytes);
+    }
+
+    hexlify (bytes) {
+        const HexCharacters = '0123456789abcdef';
+        let result = '0x';
+        for (let i = 0; i < bytes.length; i++) {
+            const v = bytes[i];
+            // eslint-disable-next-line no-bitwise
+            result += HexCharacters[(v & 0xf0) >> 4] + HexCharacters[v & 0x0f];
+        }
+        return result;
     }
 
     hexlify (bytes) {
