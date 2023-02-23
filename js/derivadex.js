@@ -917,10 +917,8 @@ module.exports = class derivadex extends Exchange {
          * @returns {object} an [order structure]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
          */
         await this.loadMarkets ();
-        // const market = this.market (symbol);
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price);
-        console.log ('createOrder orderIntent is: ', orderIntent);
         return await this.getOperatorResponseForOrderIntent (orderIntent, 'Order'); // TODO: this should return an Order obj
     }
 
@@ -1075,17 +1073,11 @@ module.exports = class derivadex extends Exchange {
 
     async encryptIntent (encryptionKey, payload) {
         // Create an ephemeral ECDSA private key to encrypt the request.
-        // Either create a new key for each request or reuse by storing in local storage.
-        // Eventually, if we want to replace eip712 signing each request by an authentication key,
-        // we can use pseudo-randomness with a seed to let users backup their key.
-        // For now, users don't care about their key after sending each request.
         const secretKeyBytes = this.wordArrayToBytes (CryptoJS.lib.WordArray.random (32), 32);
         // Unique single-use nonce for each encryption.
-        // It is important to never repeat nonces.
         const nonceBytes = this.wordArrayToBytes (CryptoJS.lib.WordArray.random (12), 12);
         const json = JSON.stringify (payload);
         const buffer = Buffer.from (json);
-        // We use native Uint8Array where possible to avoid unnecessary string operations.
         const requestBytes = new Uint8Array (buffer);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
