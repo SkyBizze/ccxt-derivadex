@@ -1124,7 +1124,6 @@ module.exports = class derivadex extends Exchange {
             throw new AuthenticationError (this.id + ' createOrder endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
-        // const market = this.market (symbol);
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (market['id'], side, orderType, amount, price);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
