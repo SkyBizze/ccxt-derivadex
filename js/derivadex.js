@@ -4,7 +4,6 @@
 
 const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
-const { utils } = require ('ethers');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
@@ -941,56 +940,23 @@ module.exports = class derivadex extends Exchange {
             // addressesResponse['addresses']['derivaDEXAddress']
             '0x48bacb9266a570d521063ef5dd96e61686dbe788' // TODO: use mainnet derivaDEXAddress
         );
+        // TODO: instead of importing sigUtil, use this typedData object alogn with provided hash primitives to compute the order signature
         const typedData = this.transformTypedDataForEthers (orderIntentData);
-        console.log ('ccxt typed data', typedData);
+        console.log ('typed data', typedData);
         // get the order signature
-        const typedDataString = JSON.stringify ({
-            'domain': typedData.domain,
-            'types': typedData.types,
-            'value': typedData.value,
-        });
-        // const typedData2 = {
-        //     'domain': typedData.domain,
-        //     'types': typedData.types,
-        //     'value': typedData.value,
-        // };
-        console.log ('JSON typed data', typedDataString);
-        // const buffer = Buffer.from (typedDataString);
-        // We use native Uint8Array where possible to avoid unnecessary string operations.
-        // const typeDataBytes = new Uint8Array (buffer);
-        // let typedDataBytes = this.base16ToBinary (ty);
-        // const typedDataBytes = this.remove0xPrefix (this.walletAddress);
-        // const privateKey = CryptoJS.enc.Hex.parse (this.privateKey);
-        // const data = JSON.stringify ({ 'data': typedData });
-        // const typedDataHash = this.hash (data, 'keccak', 'hex');
-        // console.log ('typed data obj', {
-        //     'domain': typedData.domain,
-        //     'types': typedData.types,
-        //     'value': typedData.value,
-        // });
-        // console.log ('typedDataHash', typedDataHash);
-        // const signature = this.signMessageString (typedDataHash, this.privateKey);
-        const altsignature = sigUtil.signTypedData (
+        const signature = sigUtil.signTypedData (
             Buffer.from (this.privateKey, 'hex'),
             { 'data': orderIntentData }
         );
-        console.log ('comparing sigs', altsignature, this.signTypedData (this.privateKey, { 'data': orderIntentData }));
-        orderIntent['signature'] = altsignature;
+        orderIntent['signature'] = signature;
         orderIntent['amount'] = orderIntent['amount'].toString ();
         orderIntent['price'] = orderIntent['price'].toString ();
         orderIntent['stopPrice'] = orderIntent['stopPrice'].toString ();
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
-        // const twentyOneByteAccount = this.addDiscriminant (this.walletAddress);
-        const array = Buffer.from (encryptedIntent.replace (/^0x/, ''), 'hex');
-        return await this.v2PostRequest (array);
-    }
-
-    signTypedData (privateKey, msgParams) {
-        const messageHash = CryptoJS.SHA3 (JSON.stringify (msgParams.data)).toString (CryptoJS.enc.Hex);
-        const signature = CryptoJS.AES.encrypt (messageHash, privateKey, { 'mode': CryptoJS.mode.ECB }).toString ();
-        return '0x' + signature;
+        const buffer = Buffer.from (encryptedIntent.replace (/^0x/, ''), 'hex');
+        return await this.v2PostRequest (buffer);
     }
 
     addDiscriminant (traderAddress) {
@@ -1124,7 +1090,18 @@ module.exports = class derivadex extends Exchange {
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
-        return utils.hexlify (encryptedBytes);
+        return this.hexlify (encryptedBytes);
+    }
+
+    hexlify (bytes) {
+        const HexCharacters = '0123456789abcdef';
+        let result = '0x';
+        for (let i = 0; i < bytes.length; i++) {
+            const v = bytes[i];
+            // eslint-disable-next-line no-bitwise
+            result += HexCharacters[(v & 0xf0) >> 4] + HexCharacters[v & 0x0f];
+        }
+        return result;
     }
 
     wordArrayToBytes (wordArray, size) {
@@ -1180,14 +1157,6 @@ module.exports = class derivadex extends Exchange {
         return concatenatedUint8Array;
     }
 
-    getOperatorRequestConfig () {
-        return {
-            'headers': { 'Content-Type': 'application/octet-stream' },
-            'responseType': 'text',
-            'timeout': 8000,
-        };
-    }
-
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
         const implodedPath = this.implodeParams (path, params);
         let query = ((api === 'v2' || api === 'raw') ? '' : '/api/') + ((api === 'v2' || api === 'raw') ? '' : this.version) + '/' + implodedPath;
@@ -1222,14 +1191,9 @@ module.exports = class derivadex extends Exchange {
         const url = this.urls['test'][testApi] + query; // TODO: SWITCH TO MAINNET URL
         const isAuthenticated = this.checkRequiredCredentials ();
         if (api === 'public' || (api === 'v2' && isAuthenticated)) {
-            let auth = method + query;
-            let expires = this.safeInteger (this.options, 'api-expires');
             headers = {
                 'Content-Type': 'application/json',
             };
-            expires = this.sum (this.seconds (), expires);
-            expires = expires.toString ();
-            auth += expires;
             if (method === 'POST') {
                 body = params;
                 headers = {
@@ -1240,11 +1204,8 @@ module.exports = class derivadex extends Exchange {
             if (method === 'PUT' || method === 'DELETE') {
                 if (Object.keys (params).length) {
                     body = this.json (params);
-                    auth += body;
                 }
             }
-            console.log (auth);
-            // headers['api-signature'] = this.hmac (this.encode (auth), this.encode (this.secret)); TODO: UNCOMMENT THIS
         }
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
