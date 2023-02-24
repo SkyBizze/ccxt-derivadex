@@ -1008,7 +1008,6 @@ module.exports = class derivadex extends Exchange {
         }
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
-        console.log ('intent before encrypt', intent);
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
         const buffer = Buffer.from (encryptedIntent.replace (/^0x/, ''), 'hex');
         return await this.v2PostRequest (buffer);
@@ -1181,7 +1180,7 @@ module.exports = class derivadex extends Exchange {
             },
             'domain': this.createEIP712DomainSeperator (chainId, verifyingContractAddress),
             'message': {
-                'strategy': this.encodeStringIntoBytes32 (cancelAllIntent.strategy),
+                'strategy': this.encodeStringIntoBytes32 (cancelAllIntent.strategyId),
                 'nonce': cancelAllIntent.nonce,
             },
         };
