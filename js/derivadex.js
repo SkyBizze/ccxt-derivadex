@@ -902,8 +902,7 @@ module.exports = class derivadex extends Exchange {
             throw new AuthenticationError (this.id + ' cancelOrder endpoint required privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
-        const market = this.market (symbol);
-        const orderIntent = this.getOperatorCancelOrderIntent (market, id);
+        const orderIntent = this.getOperatorCancelOrderIntent (symbol, id);
         return await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder'); // TODO: this should return an Order obj
     }
 
@@ -939,12 +938,13 @@ module.exports = class derivadex extends Exchange {
             this.v2GetEncryptionKey (),
         ]);
         console.log ('addresses', addressesResponse);
-        const orderIntentData = this.createOrderIntentTypedData (
+        const orderIntentData = this.getOrderIntentTypedData (
             scaledOrderIntent,
             // addressesResponse['chainId'],
             100, // TODO: use mainnet chainId
             // addressesResponse['addresses']['derivaDEXAddress']
-            '0x48bacb9266a570d521063ef5dd96e61686dbe788' // TODO: use mainnet derivaDEXAddress
+            '0x48bacb9266a570d521063ef5dd96e61686dbe788', // TODO: use mainnet derivaDEXAddress
+            requestType
         );
         // TODO: instead of importing sigUtil, use this typedData object alogn with provided hash primitives to compute the order signature
         const typedData = this.transformTypedDataForEthers (orderIntentData);
@@ -955,9 +955,11 @@ module.exports = class derivadex extends Exchange {
             { 'data': orderIntentData }
         );
         orderIntent['signature'] = signature;
-        orderIntent['amount'] = orderIntent['amount'].toString ();
-        orderIntent['price'] = orderIntent['price'].toString ();
-        orderIntent['stopPrice'] = orderIntent['stopPrice'].toString ();
+        if (requestType === 'Order') {
+            orderIntent['amount'] = orderIntent['amount'].toString ();
+            orderIntent['price'] = orderIntent['price'].toString ();
+            orderIntent['stopPrice'] = orderIntent['stopPrice'].toString ();
+        }
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
@@ -1035,6 +1037,15 @@ module.exports = class derivadex extends Exchange {
         return bytes32Str;
     }
 
+    getOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress, requestType) {
+        if (requestType === 'Order') {
+            return this.createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress);
+        }
+        if (requestType === 'CancelOrder') {
+            return this.cancelOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress);
+        }
+    }
+
     createOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress) {
         return {
             'primaryType': 'OrderParams',
@@ -1066,6 +1077,31 @@ module.exports = class derivadex extends Exchange {
                 'amount': orderIntent.amount.toString (),
                 'price': orderIntent.price.toString (),
                 'stopPrice': orderIntent.stopPrice.toString (),
+            },
+        };
+    }
+
+    cancelOrderIntentTypedData (cancelIntent, chainId, verifyingContractAddress) {
+        return {
+            'primaryType': 'CancelOrderParams',
+            'types': {
+                'EIP712Domain': [
+                    { 'name': 'name', 'type': 'string' },
+                    { 'name': 'version', 'type': 'string' },
+                    { 'name': 'chainId', 'type': 'uint256' },
+                    { 'name': 'verifyingContract', 'type': 'address' },
+                ],
+                'CancelOrderParams': [
+                    { 'name': 'symbol', 'type': 'bytes32' },
+                    { 'name': 'orderHash', 'type': 'bytes32' },
+                    { 'name': 'nonce', 'type': 'bytes32' },
+                ],
+            },
+            'domain': this.createEIP712DomainSeperator (chainId, verifyingContractAddress),
+            'message': {
+                'symbol': this.encodeStringIntoBytes32 (cancelIntent.symbol),
+                'orderHash': cancelIntent.orderHash,
+                'nonce': cancelIntent.nonce,
             },
         };
     }
