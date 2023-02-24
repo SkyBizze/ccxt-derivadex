@@ -912,8 +912,7 @@ module.exports = class derivadex extends Exchange {
         return this.filterBySymbolSinceLimit (results, symbol, since, limit, tail);
     }
 
-    async parseOrder (order, market = undefined) {
-        console.log ('parsing the next order', order);
+    parseOrder (order, market = undefined) {
         // {
         //     "epochId":"1",
         //     "txOrdinal":"7",
