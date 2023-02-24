@@ -764,7 +764,6 @@ module.exports = class derivadex extends Exchange {
         await this.loadMarkets ();
         const market = this.market (symbol);
         const request = {
-            'symbol': market['id'],
             'orderHash': [ id ],
         };
         const response = await this.publicGetOrderIntents (request);
@@ -802,6 +801,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     async parseOrder (order, market = undefined) {
+        console.log ('parsing the next order', order);
         // {
         //     "epochId":"1",
         //     "txOrdinal":"7",
@@ -903,7 +903,17 @@ module.exports = class derivadex extends Exchange {
         }
         await this.loadMarkets ();
         const orderIntent = this.getOperatorCancelOrderIntent (symbol, id);
-        return await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder'); // TODO: this should return an Order obj
+        const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder');
+        if (operatorResponse['t'] !== 'Sequenced') {
+            throw new ExchangeError (this.id + 'cancelOrder request failed to sequence successfully');
+        }
+        console.log ('made the operator request for cancel');
+        const market = this.market (symbol);
+        const request = {
+            'orderHash': [ id ],
+        };
+        const response = await this.publicGetOrderIntents (request);
+        return await this.parseOrder (response['value'][0], market);
     }
 
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
