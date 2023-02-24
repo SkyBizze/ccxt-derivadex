@@ -34,7 +34,7 @@ module.exports = class derivadex extends Exchange {
                 'addMargin': false,
                 'cancelAllOrders': true,
                 'cancelOrder': true,
-                'cancelOrders': true,
+                'cancelOrders': false,
                 'createOrder': true,
                 'createReduceOnlyOrder': false,
                 'editOrder': true,
@@ -885,6 +885,30 @@ module.exports = class derivadex extends Exchange {
         }
     }
 
+    async cancelAllOrders (symbol = undefined, params = {}) {
+        /**
+         * @method
+         * @name derivadex#cancelAllOrders
+         * @description cancel all open orders
+         * @param {string|undefined} symbol unified market symbol, only orders in the market of this symbol are cancelled when symbol is not undefined
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @param {string|undefined} params.strategyId the trader strategyId for which to cancel all orders
+         * @returns {[object]} a list of [order structures]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
+         */
+        const isAuthenticated = this.checkRequiredCredentials ();
+        if (!isAuthenticated) {
+            throw new AuthenticationError (this.id + ' cancelAllOrders endpoint requires privateKey and walletAddress credentials');
+        }
+        await this.loadMarkets ();
+        const strategy = params['strategyId'] === undefined ? 'main' : params['strategyId'];
+        const orderIntent = this.getOperatorCancelAllOrdersIntent (strategy);
+        const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelAll');
+        if (operatorResponse['t'] !== 'Sequenced') {
+            throw new ExchangeError (this.id + `cancelAllOrders request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+        }
+        return []; // TODO: return the full list of cancelled orders
+    }
+
     async cancelOrder (id, symbol = undefined, params = {}) {
         /**
          * @method
@@ -903,7 +927,7 @@ module.exports = class derivadex extends Exchange {
         const orderIntent = this.getOperatorCancelOrderIntent (symbol, id);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder');
         if (operatorResponse['t'] !== 'Sequenced') {
-            throw new ExchangeError (this.id + `cancelOrder request failed with error ${operatorResponse['t']}, error contents: ${operatorResponse['c']}`);
+            throw new ExchangeError (this.id + `cancelOrder request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
         }
         const market = this.market (symbol);
         const request = {
@@ -935,7 +959,7 @@ module.exports = class derivadex extends Exchange {
         const orderIntent = this.getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
         if (operatorResponse['t'] !== 'Sequenced') {
-            throw new ExchangeError (this.id + `createOrder request failed with error ${operatorResponse['t']}, error contents: ${operatorResponse['c']}`);
+            throw new ExchangeError (this.id + `createOrder request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
         }
         const market = this.market (symbol);
         const request = {
@@ -984,6 +1008,7 @@ module.exports = class derivadex extends Exchange {
         }
         const intent = { 't': requestType, 'c': orderIntent };
         // encrypt intent
+        console.log ('intent before encrypt', intent);
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
         const buffer = Buffer.from (encryptedIntent.replace (/^0x/, ''), 'hex');
         return await this.v2PostRequest (buffer);
@@ -1021,6 +1046,14 @@ module.exports = class derivadex extends Exchange {
             'nonce': this.asNonce (Date.now ()),
             'signature': '0x',
             'orderHash': orderHash + ZERO_PADDING,
+        };
+    }
+
+    getOperatorCancelAllOrdersIntent (strategyId) {
+        return {
+            'strategyId': strategyId,
+            'nonce': this.asNonce (Date.now ()),
+            'signature': '0x',
         };
     }
 
@@ -1065,6 +1098,9 @@ module.exports = class derivadex extends Exchange {
         }
         if (requestType === 'CancelOrder') {
             return this.cancelOrderIntentTypedData (orderIntent, chainId, verifyingContractAddress);
+        }
+        if (requestType === 'CancelAll') {
+            return this.cancelAllOrdersIntentTypedData (orderIntent, chainId, verifyingContractAddress);
         }
     }
 
@@ -1124,6 +1160,29 @@ module.exports = class derivadex extends Exchange {
                 'symbol': this.encodeStringIntoBytes32 (cancelIntent.symbol),
                 'orderHash': cancelIntent.orderHash,
                 'nonce': cancelIntent.nonce,
+            },
+        };
+    }
+
+    cancelAllOrdersIntentTypedData (cancelAllIntent, chainId, verifyingContractAddress) {
+        return {
+            'primaryType': 'CancelAllParams',
+            'types': {
+                'EIP712Domain': [
+                    { 'name': 'name', 'type': 'string' },
+                    { 'name': 'version', 'type': 'string' },
+                    { 'name': 'chainId', 'type': 'uint256' },
+                    { 'name': 'verifyingContract', 'type': 'address' },
+                ],
+                'CancelAllParams': [
+                    { 'name': 'strategy', 'type': 'bytes32' },
+                    { 'name': 'nonce', 'type': 'bytes32' },
+                ],
+            },
+            'domain': this.createEIP712DomainSeperator (chainId, verifyingContractAddress),
+            'message': {
+                'strategy': this.encodeStringIntoBytes32 (cancelAllIntent.strategy),
+                'nonce': cancelAllIntent.nonce,
             },
         };
     }
