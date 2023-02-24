@@ -1301,7 +1301,6 @@ module.exports = class derivadex extends Exchange {
         //     timestamp: '1677267890',
         //     success: true
         // }
-        console.log ('strategy response', strategyResponse);
         return this.parseBalance (strategyResponse['value']);
     }
 
@@ -1319,6 +1318,23 @@ module.exports = class derivadex extends Exchange {
 
     getMainStrategyIdHash () {
         return '0x2576ebd1';
+    }
+
+    async fetchDepositAddress (code, params = {}) {
+        /**
+         * @method
+         * @name derivadex#fetchDepositAddress
+         * @description fetch the deposit address for a currency associated with this account
+         * @param {string} code unified currency code
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @returns {object} an [address structure]{@link https://docs.ccxt.com/en/latest/manual.html#address-structure}
+         */
+        await this.loadMarkets ();
+        const addresses = await this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }); // TODO: switch to mainnet deployment,
+        if (code !== 'USDC' && code !== 'DDX') {
+            throw new BadSymbol (this.id + ' fetchDepositAddress() does not support ' + code);
+        }
+        return addresses['addresses']['derivaDEXAddress'];
     }
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
