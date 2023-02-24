@@ -1396,12 +1396,12 @@ module.exports = class derivadex extends Exchange {
     }
 
     hexlify (bytes) {
-        const HexCharacters = '0123456789abcdef';
+        const hexCharacters = '0123456789abcdef';
         let result = '0x';
         for (let i = 0; i < bytes.length; i++) {
             const v = bytes[i];
             // eslint-disable-next-line no-bitwise
-            result += HexCharacters[(v & 0xf0) >> 4] + HexCharacters[v & 0x0f];
+            result += hexCharacters[(v & 0xf0) >> 4] + hexCharacters[v & 0x0f];
         }
         return result;
     }
