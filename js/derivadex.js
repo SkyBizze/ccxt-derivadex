@@ -885,6 +885,27 @@ module.exports = class derivadex extends Exchange {
         }
     }
 
+    async updateProfile (payFeesInDDX) {
+        /**
+         * @method
+         * @name derivadex#profileUpdate
+         * @description update a trader profile
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @returns {bool} whether the trader profile was updated successfully
+         */
+        const isAuthenticated = this.checkRequiredCredentials ();
+        if (!isAuthenticated) {
+            throw new AuthenticationError (this.id + ' profileUpdate endpoint requires privateKey and walletAddress credentials');
+        }
+        await this.loadMarkets ();
+        const orderIntent = this.getOperatorProfileUpdateIntent (payFeesInDDX);
+        const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'ProfileUpdate');
+        if (operatorResponse['t'] !== 'Sequenced') {
+            throw new ExchangeError (this.id + `profileUpdate request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+        }
+        return true;
+    }
+
     async cancelAllOrders (symbol = undefined, params = {}) {
         /**
          * @method
@@ -1056,6 +1077,14 @@ module.exports = class derivadex extends Exchange {
         };
     }
 
+    getOperatorProfileUpdateIntent (payFeesInDDX) {
+        return {
+            'payFeesInDdx': payFeesInDDX,
+            'nonce': this.asNonce (Date.now ()),
+            'signature': '0x',
+        };
+    }
+
     getScaledOrderIntent (intent) {
         const operatorDecimals = 6;
         const operatorDecimalMultiplier = new Precise ((10 ** operatorDecimals).toString ());
@@ -1100,6 +1129,9 @@ module.exports = class derivadex extends Exchange {
         }
         if (requestType === 'CancelAll') {
             return this.cancelAllOrdersIntentTypedData (orderIntent, chainId, verifyingContractAddress);
+        }
+        if (requestType === 'ProfileUpdate') {
+            return this.profileUpdateIntentTypedData (orderIntent, chainId, verifyingContractAddress);
         }
     }
 
@@ -1182,6 +1214,29 @@ module.exports = class derivadex extends Exchange {
             'message': {
                 'strategy': this.encodeStringIntoBytes32 (cancelAllIntent.strategyId),
                 'nonce': cancelAllIntent.nonce,
+            },
+        };
+    }
+
+    profileUpdateIntentTypedData (updateProfileIntent, chainId, verifyingContractAddress) {
+        return {
+            'primaryType': 'UpdateProfileParams',
+            'types': {
+                'EIP712Domain': [
+                    { 'name': 'name', 'type': 'string' },
+                    { 'name': 'version', 'type': 'string' },
+                    { 'name': 'chainId', 'type': 'uint256' },
+                    { 'name': 'verifyingContract', 'type': 'address' },
+                ],
+                'UpdateProfileParams': [
+                    { 'name': 'payFeesInDdx', 'type': 'bool' },
+                    { 'name': 'nonce', 'type': 'bytes32' },
+                ],
+            },
+            'domain': this.createEIP712DomainSeperator (chainId, verifyingContractAddress),
+            'message': {
+                'payFeesInDdx': updateProfileIntent.payFeesInDdx,
+                'nonce': updateProfileIntent.nonce,
             },
         };
     }
