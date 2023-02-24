@@ -913,6 +913,7 @@ module.exports = class derivadex extends Exchange {
     }
 
     async parseOrder (order, market = undefined) {
+        console.log ('parsing the next order', order);
         // {
         //     "epochId":"1",
         //     "txOrdinal":"7",
