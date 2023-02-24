@@ -6,7 +6,7 @@ const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
-const { BadSymbol, BadRequest, ArgumentsRequired } = require ('./base/errors');
+const { AuthenticationError, BadSymbol, ArgumentsRequired } = require ('./base/errors');
 const Precise = require ('./base/Precise');
 const CryptoJS = require ('./static_dependencies/crypto-js/crypto-js');
 const elliptic = require ('./static_dependencies/elliptic/lib/elliptic');
@@ -452,7 +452,9 @@ module.exports = class derivadex extends Exchange {
         const market = this.market (symbol);
         const request = {
             'symbol': market['id'],
-            'wallet': this.walletAddress,
+            'trader': this.walletAddress,
+            'strategy': 'main',
+            'reason': '0',
         };
         if (limit !== undefined) {
             request['limit'] = limit; // default 500
@@ -460,16 +462,15 @@ module.exports = class derivadex extends Exchange {
         if (since !== undefined) {
             request['since'] = since;
         }
-        if (params['order'] !== undefined) {
-            request['order'] = params['order'];
-        }
+        request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
         const extendedRequest = this.extend (request, params);
-        if (extendedRequest['wallet'] === undefined) {
-            throw new BadRequest (this.id + ' fetchMyTrades() walletAddress is undefined, set this.walletAddress or "address" in params');
+        if (extendedRequest['trader'] === undefined) {
+            throw new AuthenticationError (this.id + ' fetchMyTrades() walletAddress is undefined, set this.walletAddress or "address" in params');
         }
         const response = await this.publicGetFills (extendedRequest);
-        response['traderAddress'] = undefined; // TODO: supply the users trader address in parseTradesCustom
-        return await this.parseTrades (response, market, since, limit);
+        const traderAddressWithDiscriminant = this.addDiscriminant (this.walletAddress);
+        const mainStrategyIdHash = '0x2576ebd1';
+        return await this.parseTradesCustom (response, market, since, limit, traderAddressWithDiscriminant, mainStrategyIdHash);
     }
 
     async fetchTrades (symbol, since = undefined, limit = undefined, params = {}) {
@@ -488,6 +489,7 @@ module.exports = class derivadex extends Exchange {
         const market = this.market (symbol);
         const request = {
             'symbol': market['id'],
+            'reason': '0',
         };
         if (limit !== undefined) {
             request['limit'] = limit; // default 500
@@ -548,7 +550,6 @@ module.exports = class derivadex extends Exchange {
         const result = {};
         const params = {
             'orderHash': [],
-            'order': 'desc',
         };
         for (let i = 0; i < trades.length; i++) {
             params['orderHash'].push (trades[i]['takerOrderHash']);
@@ -561,12 +562,12 @@ module.exports = class derivadex extends Exchange {
         return result;
     }
 
-    async parseTradesCustom (trades, market = undefined, since = undefined, limit = undefined) {
+    async parseTradesCustom (trades, market = undefined, since = undefined, limit = undefined, trader = undefined, strategy = undefined) {
         trades = this.toArray (trades);
         let result = [];
         const orderIntents = await this.getOrderIntents (trades[0]);
         for (let i = 0; i < trades[0].length; i++) {
-            const trade = await this.parseTradeCustom (trades[0][i], orderIntents);
+            const trade = await this.parseTradeCustom (trades[0][i], orderIntents, trader, strategy);
             result.push (trade);
         }
         result = this.sortBy2 (result, 'timestamp', 'id');
@@ -575,7 +576,7 @@ module.exports = class derivadex extends Exchange {
         return this.filterBySymbolSinceLimit (result, symbol, since, limit, tail);
     }
 
-    async parseTradeCustom (trade, orderIntents) {
+    async parseTradeCustom (trade, orderIntents, trader = undefined, strategy = undefined) {
         const id = this.safeString (trade, 'takerOrderHash') + '_' + this.safeString (trade, 'epochId') + '_' + this.safeString (trade, 'txOrdinal');
         const timestamp = this.parse8601 (this.safeString (trade, 'createdAt'));
         const datetime = this.iso8601 (timestamp);
@@ -592,12 +593,11 @@ module.exports = class derivadex extends Exchange {
         const orderTypeNumber = this.safeInteger (orderIntents[takerOrderHash], 'orderType');
         const side = sideNumber === 0 ? 'buy' : 'sell';
         const orderType = this.getOrderType (orderTypeNumber);
-        // liquidations have will null takerOrderHash
-        const takerOrMaker = takerOrderHash !== null ? 'taker' : 'maker';
-        // TODO: enable this for fetchMyTrades()
-        // if (trade['traderAddress'] !== undefined && trade['traderAddress'] !== this.safeString (trade['order_intents'][takerOrderHash], 'traderAddress')) {
-        //     takerOrMaker = 'maker';
-        // }
+        // liquidations will have null takerOrderHash
+        let takerOrMaker = takerOrderHash !== null ? 'taker' : undefined;
+        if (trader !== undefined && strategy !== undefined && this.safeString (trade, 'makerOrderTrader') === trader.toLowerCase () && this.safeString (trade, 'makerOrderStrategyIdHash') === strategy) {
+            takerOrMaker = 'maker';
+        }
         return this.safeTrade ({
             'info': trade,
             'timestamp': timestamp,
@@ -897,6 +897,10 @@ module.exports = class derivadex extends Exchange {
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {object} An [order structure]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
          */
+        const isAuthenticated = this.checkRequiredCredentials ();
+        if (!isAuthenticated) {
+            throw new AuthenticationError (this.id + ' cancelOrder endpoint required privateKey and walletAddress credentials');
+        }
         await this.loadMarkets ();
         const market = this.market (symbol);
         const orderIntent = this.getOperatorCancelOrderIntent (market, id);
@@ -916,6 +920,10 @@ module.exports = class derivadex extends Exchange {
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {object} an [order structure]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
          */
+        const isAuthenticated = this.checkRequiredCredentials ();
+        if (!isAuthenticated) {
+            throw new AuthenticationError (this.id + ' createOrder endpoint required privateKey and walletAddress credentials');
+        }
         await this.loadMarkets ();
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price);
@@ -1086,12 +1094,12 @@ module.exports = class derivadex extends Exchange {
     }
 
     hexlify (bytes) {
-        const HexCharacters = '0123456789abcdef';
+        const hexCharacters = '0123456789abcdef';
         let result = '0x';
         for (let i = 0; i < bytes.length; i++) {
             const v = bytes[i];
             // eslint-disable-next-line no-bitwise
-            result += HexCharacters[(v & 0xf0) >> 4] + HexCharacters[v & 0x0f];
+            result += hexCharacters[(v & 0xf0) >> 4] + hexCharacters[v & 0x0f];
         }
         return result;
     }
@@ -1181,8 +1189,7 @@ module.exports = class derivadex extends Exchange {
             testApi = 'op1';
         }
         const url = this.urls['test'][testApi] + query; // TODO: SWITCH TO MAINNET URL
-        const isAuthenticated = this.checkRequiredCredentials ();
-        if (api === 'public' || (api === 'v2' && isAuthenticated)) {
+        if (api === 'public' || api === 'v2') {
             headers = {
                 'Content-Type': 'application/json',
             };
