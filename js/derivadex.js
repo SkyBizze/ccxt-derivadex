@@ -895,13 +895,13 @@ module.exports = class derivadex extends Exchange {
          */
         const isAuthenticated = this.checkRequiredCredentials ();
         if (!isAuthenticated) {
-            throw new AuthenticationError (this.id + ' profileUpdate endpoint requires privateKey and walletAddress credentials');
+            throw new AuthenticationError (this.id + ' updateProfile endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
         const orderIntent = this.getOperatorProfileUpdateIntent (payFeesInDDX);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'ProfileUpdate');
         if (operatorResponse['t'] !== 'Sequenced') {
-            throw new ExchangeError (this.id + `profileUpdate request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+            throw new ExchangeError (this.id + `updateProfile request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
         }
         return true;
     }
