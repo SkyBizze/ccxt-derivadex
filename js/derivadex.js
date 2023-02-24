@@ -6,7 +6,7 @@ const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
-const { AuthenticationError, BadSymbol, ArgumentsRequired } = require ('./base/errors');
+const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError } = require ('./base/errors');
 const Precise = require ('./base/Precise');
 const CryptoJS = require ('./static_dependencies/crypto-js/crypto-js');
 const elliptic = require ('./static_dependencies/elliptic/lib/elliptic');
@@ -767,7 +767,7 @@ module.exports = class derivadex extends Exchange {
             'orderHash': [ id ],
         };
         const response = await this.publicGetOrderIntents (request);
-        return await this.parseOrders (response['value'], market);
+        return await this.parseOrder (response['value'][0], market);
     }
 
     async fetchOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
@@ -793,15 +793,12 @@ module.exports = class derivadex extends Exchange {
         if (since !== undefined) {
             request['since'] = since;
         }
-        if (params['order'] !== undefined) {
-            request['order'] = params['order'];
-        }
+        request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
         const response = await this.publicGetOrderIntents (request);
-        return await this.parseOrders (response['value'], market, since, limit);
+        return this.parseOrders (response['value'], market, since, limit);
     }
 
-    async parseOrder (order, market = undefined) {
-        console.log ('parsing the next order', order);
+    parseOrder (order, market = undefined) {
         // {
         //     "epochId":"1",
         //     "txOrdinal":"7",
@@ -819,10 +816,11 @@ module.exports = class derivadex extends Exchange {
         //     "strategyId":"main"
         // }
         const id = this.safeString (order, 'orderHash');
-        const timestamp = this.parse8601 (this.safeString (order, 'createdAt'));
-        const datetime = this.iso8601 (timestamp);
+        // const timestamp = this.iso8601 (this.safeString (order, 'createdAt'));
+        const datetime = this.safeString (order, 'createdAt');
+        const timestamp = this.parse8601 (datetime);
+        // const datetime = this.safeString (order, 'createdAt');
         const lastTradeTimestamp = undefined;
-        const status = undefined;
         const symbol = this.safeString (order, 'symbol');
         // const orderHash = this.safeString (order, 'orderHash');
         const sideNumber = this.safeInteger (order, 'side');
@@ -840,9 +838,9 @@ module.exports = class derivadex extends Exchange {
             'id': id,
             'clientOrderId': undefined,
             'timestamp': timestamp,
-            'datetime': datetime,
+            'datetime': this.iso8601 (timestamp),
             'lastTradeTimestamp': lastTradeTimestamp,
-            'status': status,
+            'status': 'open', // TODO: get order status from the fills endpoint
             'symbol': symbol,
             'type': orderType,
             'timeInForce': 'GTC',
@@ -905,9 +903,8 @@ module.exports = class derivadex extends Exchange {
         const orderIntent = this.getOperatorCancelOrderIntent (symbol, id);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder');
         if (operatorResponse['t'] !== 'Sequenced') {
-            throw new ExchangeError (this.id + 'cancelOrder request failed to sequence successfully');
+            throw new ExchangeError (this.id + `cancelOrder request failed with error ${operatorResponse['t']}, error contents: ${operatorResponse['c']}`);
         }
-        console.log ('made the operator request for cancel');
         const market = this.market (symbol);
         const request = {
             'orderHash': [ id ],
@@ -936,7 +933,22 @@ module.exports = class derivadex extends Exchange {
         await this.loadMarkets ();
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price);
-        return await this.getOperatorResponseForOrderIntent (orderIntent, 'Order'); // TODO: this should return an Order obj
+        const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
+        if (operatorResponse['t'] !== 'Sequenced') {
+            throw new ExchangeError (this.id + `createOrder request failed with error ${operatorResponse['t']}, error contents: ${operatorResponse['c']}`);
+        }
+        const market = this.market (symbol);
+        const request = {
+            'trader': this.walletAddress,
+            'strategyId': 'main',
+        };
+        const orderIntentParams = {
+            'symbol': symbol,
+            'limit': 1,
+            'order': 'desc',
+        };
+        const response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (this.extend (request, orderIntentParams));
+        return await this.parseOrder (response['value'][0], market);
     }
 
     async getOperatorResponseForOrderIntent (orderIntent, requestType) {
