@@ -469,7 +469,7 @@ module.exports = class derivadex extends Exchange {
         }
         const response = await this.publicGetFills (extendedRequest);
         const traderAddressWithDiscriminant = this.addDiscriminant (this.walletAddress);
-        const mainStrategyIdHash = '0x2576ebd1';
+        const mainStrategyIdHash = this.getMainStrategyIdHash ();
         return await this.parseTradesCustom (response, market, since, limit, traderAddressWithDiscriminant, mainStrategyIdHash);
     }
 
@@ -1271,6 +1271,54 @@ module.exports = class derivadex extends Exchange {
         offset += nonceBytes.length;
         concatenatedUint8Array.set (compressedPublicKeyBytes, offset);
         return concatenatedUint8Array;
+    }
+
+    async fetchBalance (params = {}) {
+        /**
+         * @method
+         * @name derivadex#fetchBalance
+         * @description query for balance and get the amount of funds available for trading or funds locked in orders
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @returns {object} a [balance structure]{@link https://docs.ccxt.com/en/latest/manual.html?#balance-structure}
+         */
+        await this.loadMarkets ();
+        // query strategy to get free/frozen collateral
+        const strategyRequest = {
+            'trader': this.walletAddress,
+            'strategyId': 'main',
+        };
+        const strategyResponse = await this.publicGetAccountTraderStrategyStrategyId (strategyRequest);
+        // {
+        //     value: {
+        //       trader: '0x0006cef8e666768cc40cc78cf93d9611019ddcb628',
+        //       strategyId: 'main',
+        //       strategyIdHash: '0x2576ebd1',
+        //       maxLeverage: '3',
+        //       freeCollateral: '9958.802449',
+        //       frozenCollateral: '1000000',
+        //       frozen: false
+        //     },
+        //     timestamp: '1677267890',
+        //     success: true
+        // }
+        console.log ('strategy response', strategyResponse);
+        return this.parseBalance (strategyResponse['value']);
+    }
+
+    parseBalance (strategy) {
+        const result = {
+            'info': strategy,
+        };
+        const account = this.account ();
+        const total = this.safeNumber (strategy, 'freeCollateral') + this.safeNumber (strategy, 'frozenCollateral');
+        account['total'] = total.toString ();
+        account['free'] = this.safeString (strategy, 'freeCollateral');
+        result['USDC'] = account;
+        return this.safeBalance (result);
+    }
+
+    getMainStrategyIdHash () {
+        return '0x2576ebd1';
     }
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
