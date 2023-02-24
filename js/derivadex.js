@@ -593,7 +593,7 @@ module.exports = class derivadex extends Exchange {
         const orderTypeNumber = this.safeInteger (orderIntents[takerOrderHash], 'orderType');
         const side = sideNumber === 0 ? 'buy' : 'sell';
         const orderType = this.getOrderType (orderTypeNumber);
-        // liquidations will have null takerOrderHash
+        // liquidations have null takerOrderHash
         let takerOrMaker = takerOrderHash !== null ? 'taker' : undefined;
         if (trader !== undefined && strategy !== undefined && this.safeString (trade, 'makerOrderTrader') === trader.toLowerCase () && this.safeString (trade, 'makerOrderStrategyIdHash') === strategy) {
             takerOrMaker = 'maker';
@@ -606,7 +606,7 @@ module.exports = class derivadex extends Exchange {
             'id': id,
             'order': order,
             'type': orderType,
-            'takerOrMaker': takerOrMaker, // TODO: provide 'taker' as default value for public trades, but determine if maker is appropriate if this is called with an account context i,e the makerOrderHash originates from the trader address
+            'takerOrMaker': takerOrMaker,
             'side': side,
             'price': price,
             'cost': undefined,
@@ -899,7 +899,7 @@ module.exports = class derivadex extends Exchange {
          */
         const isAuthenticated = this.checkRequiredCredentials ();
         if (!isAuthenticated) {
-            throw new AuthenticationError (this.id + ' cancelOrder endpoint required privateKey and walletAddress credentials');
+            throw new AuthenticationError (this.id + ' cancelOrder endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
         const orderIntent = this.getOperatorCancelOrderIntent (symbol, id);
@@ -921,7 +921,7 @@ module.exports = class derivadex extends Exchange {
          */
         const isAuthenticated = this.checkRequiredCredentials ();
         if (!isAuthenticated) {
-            throw new AuthenticationError (this.id + ' createOrder endpoint required privateKey and walletAddress credentials');
+            throw new AuthenticationError (this.id + ' createOrder endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
         const orderType = this.capitalize (type);
