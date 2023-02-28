@@ -879,7 +879,6 @@ module.exports = class derivadex extends Exchange {
         const id = this.safeString (order, 'orderHash');
         const datetime = this.safeString (order, 'createdAt');
         const timestamp = this.parse8601 (datetime);
-        const lastTradeTimestamp = undefined;
         const symbol = this.safeString (order, 'symbol');
         const orderHash = this.safeString (order, 'orderHash');
         const sideNumber = this.safeInteger (order, 'side');
@@ -893,14 +892,14 @@ module.exports = class derivadex extends Exchange {
         };
         const fillResponse = await this.publicGetFills (params);
         const fills = fillResponse['value'];
-        const [ status, filled ] = this.getOrderStatus (fills, amount);
+        const [ status, filled ] = this.getOrderStatusAndFilledAmount (fills, amount);
         const orderType = this.getOrderType (orderTypeNumber);
         return this.safeOrder ({
             'id': id,
             'clientOrderId': undefined,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-            'lastTradeTimestamp': lastTradeTimestamp,
+            'lastTradeTimestamp': undefined,
             'status': status,
             'symbol': symbol,
             'type': orderType,
@@ -918,7 +917,7 @@ module.exports = class derivadex extends Exchange {
         }, market);
     }
 
-    getOrderStatus (fills, orderAmount) {
+    getOrderStatusAndFilledAmount (fills, orderAmount) {
         let filledAmount = 0;
         let isCancel = false;
         for (let i = 0; i < fills.length; i++) {
@@ -1007,7 +1006,7 @@ module.exports = class derivadex extends Exchange {
         if (operatorResponse['t'] !== 'Sequenced') {
             throw new ExchangeError (this.id + `cancelAllOrders request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
         }
-        return []; // TODO: return the full list of cancelled orders
+        return operatorResponse;
     }
 
     async cancelOrder (id, symbol = undefined, params = {}) {
@@ -1027,15 +1026,32 @@ module.exports = class derivadex extends Exchange {
         await this.loadMarkets ();
         const orderIntent = this.getOperatorCancelOrderIntent (symbol, id);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder');
+        const timestamp = Date.now ();
         if (operatorResponse['t'] !== 'Sequenced') {
             throw new ExchangeError (this.id + `cancelOrder request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
         }
         const market = this.market (symbol);
-        const request = {
-            'orderHash': [ id ],
-        };
-        const response = await this.publicGetOrderIntents (request);
-        return await this.parseOrder (response['value'][0], market);
+        return this.safeOrder ({
+            'id': undefined,
+            'clientOrderId': undefined,
+            'timestamp': timestamp,
+            'datetime': this.iso8601 (timestamp),
+            'lastTradeTimestamp': undefined,
+            'status': undefined,
+            'symbol': symbol,
+            'type': undefined,
+            'timeInForce': 'GTC',
+            'side': undefined,
+            'price': undefined,
+            'average': undefined,
+            'amount': undefined,
+            'filled': undefined,
+            'remaining': undefined,
+            'cost': undefined,
+            'trades': undefined,
+            'fee': undefined,
+            'info': operatorResponse,
+        }, market);
     }
 
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
@@ -1059,21 +1075,32 @@ module.exports = class derivadex extends Exchange {
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
-        if (operatorResponse['t'] !== 'Sequenced') {
-            throw new ExchangeError (this.id + `createOrder request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+        const timestamp = Date.now ();
+        if (operatorResponse['t'] !== 'Sequenced') { // TODO: this assumption is wrong for market orders
+            throw new ExchangeError (this.id + `createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
         }
         const market = this.market (symbol);
-        const request = {
-            'trader': this.walletAddress,
-            'strategyId': 'main',
-        };
-        const orderIntentParams = {
+        return this.safeOrder ({
+            'id': undefined,
+            'clientOrderId': undefined,
+            'timestamp': timestamp,
+            'datetime': this.iso8601 (timestamp),
+            'lastTradeTimestamp': undefined,
+            'status': undefined,
             'symbol': symbol,
-            'limit': 1,
-            'order': 'desc',
-        };
-        const response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (this.extend (request, orderIntentParams));
-        return await this.parseOrder (response['value'][0], market);
+            'type': type,
+            'timeInForce': 'GTC',
+            'side': side,
+            'price': price,
+            'average': undefined,
+            'amount': amount,
+            'filled': undefined,
+            'remaining': undefined,
+            'cost': undefined,
+            'trades': undefined,
+            'fee': undefined,
+            'info': operatorResponse,
+        }, market);
     }
 
     async getOperatorResponseForOrderIntent (orderIntent, requestType) {
@@ -1339,6 +1366,7 @@ module.exports = class derivadex extends Exchange {
         const json = JSON.stringify (payload);
         const buffer = Buffer.from (json);
         const requestBytes = new Uint8Array (buffer);
+        console.log ('about to slice encryption key', encryptionKey);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
