@@ -48,7 +48,7 @@ module.exports = class derivadex extends Exchange {
                 'fetchFundingRateHistory': false,
                 'fetchFundingRates': false,
                 'fetchIndexOHLCV': false,
-                'fetchLedger': true,
+                'fetchLedger': false,
                 'fetchLeverage': false,
                 'fetchLeverageTiers': false,
                 'fetchMarketLeverageTiers': false,
@@ -67,7 +67,7 @@ module.exports = class derivadex extends Exchange {
                 'fetchTicker': true,
                 'fetchTickers': true,
                 'fetchTrades': true,
-                'fetchTransactions': true,
+                'fetchTransactions': false,
                 'fetchTransfer': false,
                 'fetchTransfers': false,
                 'reduceMargin': false,
@@ -454,7 +454,7 @@ module.exports = class derivadex extends Exchange {
             'symbol': market['id'],
             'trader': this.walletAddress,
             'strategy': 'main',
-            'reason': '0',
+            'fillReason': '0',
         };
         if (limit !== undefined) {
             request['limit'] = limit; // default 500
@@ -489,7 +489,7 @@ module.exports = class derivadex extends Exchange {
         const market = this.market (symbol);
         const request = {
             'symbol': market['id'],
-            'reason': '0',
+            'fillReason': '0',
         };
         if (limit !== undefined) {
             request['limit'] = limit; // default 500
@@ -567,7 +567,7 @@ module.exports = class derivadex extends Exchange {
         let result = [];
         const orderIntents = await this.getOrderIntents (trades[0]);
         for (let i = 0; i < trades[0].length; i++) {
-            const trade = await this.parseTradeCustom (trades[0][i], orderIntents, trader, strategy);
+            const trade = this.parseTradeCustom (trades[0][i], orderIntents, trader, strategy);
             result.push (trade);
         }
         result = this.sortBy2 (result, 'timestamp', 'id');
@@ -576,7 +576,7 @@ module.exports = class derivadex extends Exchange {
         return this.filterBySymbolSinceLimit (result, symbol, since, limit, tail);
     }
 
-    async parseTradeCustom (trade, orderIntents, trader = undefined, strategy = undefined) {
+    parseTradeCustom (trade, orderIntents, trader = undefined, strategy = undefined) {
         const id = this.safeString (trade, 'takerOrderHash') + '_' + this.safeString (trade, 'epochId') + '_' + this.safeString (trade, 'txOrdinal');
         const timestamp = this.parse8601 (this.safeString (trade, 'createdAt'));
         const datetime = this.iso8601 (timestamp);
@@ -608,6 +608,46 @@ module.exports = class derivadex extends Exchange {
             'type': orderType,
             'takerOrMaker': takerOrMaker,
             'side': side,
+            'price': price,
+            'cost': undefined,
+            'amount': amount,
+            'fee': fee,
+        });
+    }
+
+    parseTrade (trade, market = undefined) {
+        const id = this.safeString (trade, 'takerOrderHash') + '_' + this.safeString (trade, 'epochId') + '_' + this.safeString (trade, 'txOrdinal');
+        const timestamp = this.parse8601 (this.safeString (trade, 'createdAt'));
+        const datetime = this.iso8601 (timestamp);
+        const symbol = this.safeString (trade, 'symbol');
+        const order = this.safeString (trade, 'takerOrderHash');
+        const price = this.safeString (trade, 'price');
+        const amount = this.safeString (trade, 'amount');
+        const fee = {
+            'cost': this.safeString (trade, 'takerFee'),
+            'currency': this.safeString (trade, 'takerFeeSymbol'),
+        };
+        const takerOrderHash = this.safeString (trade, 'takerOrderHash');
+        // TODO: get side and ordertype for this path (parseTrade from fills response in parseOrder)
+        // const sideNumber = this.safeInteger (trade, 'side');
+        // const orderTypeNumber = this.safeInteger (trade, 'orderType');
+        // const side = sideNumber === 0 ? 'buy' : 'sell';
+        // const orderType = this.getOrderType (orderTypeNumber);
+        // liquidations have null takerOrderHash
+        const takerOrMaker = takerOrderHash !== null ? 'taker' : undefined;
+        // if (trader !== undefined && strategy !== undefined && this.safeString (trade, 'makerOrderTrader') === trader.toLowerCase () && this.safeString (trade, 'makerOrderStrategyIdHash') === strategy) {
+        //     takerOrMaker = 'maker';
+        // }
+        return this.safeTrade ({
+            'info': trade,
+            'timestamp': timestamp,
+            'datetime': datetime,
+            'symbol': symbol,
+            'id': id,
+            'order': order,
+            'type': undefined,
+            'takerOrMaker': takerOrMaker,
+            'side': undefined,
             'price': price,
             'cost': undefined,
             'amount': amount,
@@ -795,10 +835,31 @@ module.exports = class derivadex extends Exchange {
         }
         request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
         const response = await this.publicGetOrderIntents (request);
-        return this.parseOrders (response['value'], market, since, limit);
+        return await this.parseOrdersCustom (response['value'], market, since, limit);
     }
 
-    parseOrder (order, market = undefined) {
+    async parseOrdersCustom (orders, market = undefined, since = undefined, limit = undefined, params = {}) {
+        let results = [];
+        if (Array.isArray (orders)) {
+            for (let i = 0; i < orders.length; i++) {
+                const order = this.extend (await this.parseOrder (orders[i], market), params);
+                results.push (order);
+            }
+        } else {
+            const ids = Object.keys (orders);
+            for (let i = 0; i < ids.length; i++) {
+                const id = ids[i];
+                const order = this.extend (this.parseOrder (this.extend ({ 'id': id }, orders[id]), market), params);
+                results.push (order);
+            }
+        }
+        results = this.sortBy (results, 'timestamp');
+        const symbol = (market !== undefined) ? market['symbol'] : undefined;
+        const tail = since === undefined;
+        return this.filterBySymbolSinceLimit (results, symbol, since, limit, tail);
+    }
+
+    async parseOrder (order, market = undefined) {
         // {
         //     "epochId":"1",
         //     "txOrdinal":"7",
@@ -816,23 +877,24 @@ module.exports = class derivadex extends Exchange {
         //     "strategyId":"main"
         // }
         const id = this.safeString (order, 'orderHash');
-        // const timestamp = this.iso8601 (this.safeString (order, 'createdAt'));
         const datetime = this.safeString (order, 'createdAt');
         const timestamp = this.parse8601 (datetime);
-        // const datetime = this.safeString (order, 'createdAt');
         const lastTradeTimestamp = undefined;
         const symbol = this.safeString (order, 'symbol');
-        // const orderHash = this.safeString (order, 'orderHash');
+        const orderHash = this.safeString (order, 'orderHash');
         const sideNumber = this.safeInteger (order, 'side');
         const orderTypeNumber = this.safeInteger (order, 'orderType');
         const side = sideNumber === 0 ? 'buy' : 'sell';
         const price = this.safeString (order, 'price');
         const amount = this.safeString (order, 'amount');
-        // const params = {
-        //     'orderHash': [orderHash],
-        // };
-        // const fillsResponse = await this.publicGetFills (params);
-        // const trades = fillsResponse['value'];
+        const params = {
+            'orderHash': [ orderHash ],
+            'fillReason': [ 0, 1, 2 ],
+        };
+        const fillResponse = await this.publicGetFills (params);
+        const fills = fillResponse['value'];
+        const [ status, filled ] = this.getOrderStatus (fills, amount);
+        console.log ('status returned', status, filled, amount);
         const orderType = this.getOrderType (orderTypeNumber);
         return this.safeOrder ({
             'id': id,
@@ -840,7 +902,7 @@ module.exports = class derivadex extends Exchange {
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
             'lastTradeTimestamp': lastTradeTimestamp,
-            'status': 'open', // TODO: get order status from the fills endpoint
+            'status': status,
             'symbol': symbol,
             'type': orderType,
             'timeInForce': 'GTC',
@@ -848,13 +910,28 @@ module.exports = class derivadex extends Exchange {
             'price': price,
             'average': undefined,
             'amount': amount,
-            'filled': undefined,
+            'filled': filled,
             'remaining': undefined,
             'cost': undefined,
             'trades': undefined,
             'fee': undefined,
             'info': order,
         }, market);
+    }
+
+    getOrderStatus (fills, orderAmount) {
+        let filledAmount = 0;
+        for (let i = 0; i < fills.length; i++) {
+            if (fills[i]['reason'] === '2') {
+                return [ 'canceled', filledAmount ];
+            } else {
+                filledAmount += this.parseNumber (fills[i]['amount']);
+            }
+        }
+        if (filledAmount === this.parseNumber (orderAmount)) {
+            return [ 'closed', filledAmount ];
+        }
+        return [ 'open', filledAmount ];
     }
 
     getOrderType (orderTypeNumber) {
@@ -1000,11 +1077,12 @@ module.exports = class derivadex extends Exchange {
         // get the scaled order intent
         const scaledOrderIntent = requestType === 'Order' ? this.getScaledOrderIntent (orderIntent) : orderIntent;
         // get the order intent typed data
-        const [ addressesResponse, encryptionKey ] = await Promise.all ([
-            this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
-            this.v2GetEncryptionKey (),
-        ]);
-        console.log ('addresses', addressesResponse);
+        const encryptionKey = await this.v2GetEncryptionKey ();
+        // const [ addressesResponse, encryptionKey ] = await Promise.all ([
+        //     this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
+        //     this.v2GetEncryptionKey (),
+        // ]);
+        // console.log ('addresses', addressesResponse);
         const orderIntentData = this.getOrderIntentTypedData (
             scaledOrderIntent,
             // addressesResponse['chainId'],
@@ -1014,8 +1092,8 @@ module.exports = class derivadex extends Exchange {
             requestType
         );
         // TODO: instead of importing sigUtil, use this typedData object alogn with provided hash primitives to compute the order signature
-        const typedData = this.transformTypedDataForEthers (orderIntentData);
-        console.log ('typed data', typedData);
+        // const typedData = this.transformTypedDataForEthers (orderIntentData);
+        // console.log ('typed data', typedData);
         // get the order signature
         const signature = sigUtil.signTypedData (
             Buffer.from (this.privateKey, 'hex'),
@@ -1402,9 +1480,18 @@ module.exports = class derivadex extends Exchange {
                     orderHashParam += (i > 0 ? '&' : '') + 'orderHash=' + params['orderHash'][i];
                 }
                 query += '?' + orderHashParam;
-                delete params['orderHash'];
             }
-            if (Object.keys (params).length) {
+            if (params['fillReason'] !== undefined) {
+                let fillReasonParam = '';
+                for (let i = 0; i < params['fillReason'].length; i++) {
+                    fillReasonParam += (i > 0 ? '&' : '') + 'fillReason=' + params['fillReason'][i];
+                }
+                query += params['orderHash'] !== undefined ? '&' : '?';
+                query += fillReasonParam;
+            }
+            if (Object.keys (params).length && params['fillReason'] === undefined && params['orderHash'] === undefined) {
+                delete params['orderHash'];
+                delete params['fillReason'];
                 query += '?' + this.urlencode (params);
             }
         } else {
