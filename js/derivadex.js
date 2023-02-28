@@ -912,7 +912,7 @@ module.exports = class derivadex extends Exchange {
         return this.filterBySymbolSinceLimit (results, symbol, since, limit, tail);
     }
 
-    parseOrder (order, market = undefined) {
+    async parseOrder (order, market = undefined) {
         // {
         //     "epochId":"1",
         //     "txOrdinal":"7",
