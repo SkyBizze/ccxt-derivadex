@@ -56,7 +56,7 @@ module.exports = class derivadex extends Exchange {
                 'fetchMarkOHLCV': false,
                 'fetchMyTrades': true,
                 'fetchOHLCV': true,
-                'fetchOpenOrders': true,
+                'fetchOpenOrders': false,
                 'fetchOrder': true,
                 'fetchOrderBook': true,
                 'fetchOrders': true,
@@ -894,7 +894,6 @@ module.exports = class derivadex extends Exchange {
         const fillResponse = await this.publicGetFills (params);
         const fills = fillResponse['value'];
         const [ status, filled ] = this.getOrderStatus (fills, amount);
-        console.log ('status returned', status, filled, amount);
         const orderType = this.getOrderType (orderTypeNumber);
         return this.safeOrder ({
             'id': id,
@@ -911,25 +910,29 @@ module.exports = class derivadex extends Exchange {
             'average': undefined,
             'amount': amount,
             'filled': filled,
-            'remaining': undefined,
+            'remaining': this.parseNumber (amount) - filled,
             'cost': undefined,
             'trades': undefined,
             'fee': undefined,
-            'info': order,
+            'info': { order, fills },
         }, market);
     }
 
     getOrderStatus (fills, orderAmount) {
         let filledAmount = 0;
+        let isCancel = false;
         for (let i = 0; i < fills.length; i++) {
             if (fills[i]['reason'] === '2') {
-                return [ 'canceled', filledAmount ];
+                isCancel = true;
             } else {
                 filledAmount += this.parseNumber (fills[i]['amount']);
             }
         }
         if (filledAmount === this.parseNumber (orderAmount)) {
             return [ 'closed', filledAmount ];
+        }
+        if (isCancel) {
+            return [ 'canceled', filledAmount ];
         }
         return [ 'open', filledAmount ];
     }
