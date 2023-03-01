@@ -8,11 +8,11 @@ import CryptoJS from '../../static_dependencies/crypto-js/crypto-js.cjs';
 
 import { capitalize } from './string.js';
 import { binaryToBase58, byteArrayToWordArray, urlencodeBase64, stringToBase64 } from './encode.js';
-// import errors from './../errors.js'
 import { ExchangeError } from '../errors.js';
 
 const EC = elliptic.ec;
 const EDDSA = elliptic.eddsa;
+const crypto = require ('crypto');
 /*  ------------------------------------------------------------------------ */
 
 const hash = (request, hash = 'md5', digest = 'hex') => {
@@ -165,6 +165,10 @@ function crc32 (str, signed = false) {
     }
 }
 
+function createCipheriv (mode, key, nonceBytes) {
+    return crypto.createCipheriv (mode, key, nonceBytes);
+}
+
 /*  ------------------------------------------------------------------------ */
 
 export {
@@ -176,6 +180,7 @@ export {
     ecdsa,
     eddsa,
     crc32,
-};
+    createCipheriv,
+}
 
 /*  ------------------------------------------------------------------------ */
