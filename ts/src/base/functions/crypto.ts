@@ -13,6 +13,7 @@ import { ExchangeError } from '../errors.js';
 const EC = elliptic.ec;
 const EDDSA = elliptic.eddsa;
 const crypto = require ('crypto');
+const sigUtil = require ('eth-sig-util');
 /*  ------------------------------------------------------------------------ */
 
 const hash = (request, hash = 'md5', digest = 'hex') => {

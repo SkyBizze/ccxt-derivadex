@@ -2,7 +2,6 @@
 
 //  ---------------------------------------------------------------------------
 
-const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
