@@ -12,6 +12,7 @@ const EC = elliptic.ec
 const EDDSA = elliptic.eddsa
 const { ArgumentsRequired } = require ('./../errors')
 const BN = require ('../../static_dependencies/BN/bn.js')
+const crypto = require ('crypto');
 
 /*  ------------------------------------------------------------------------ */
 
@@ -22,6 +23,7 @@ const hash = (request, hash = 'md5', digest = 'hex') => {
         options['outputLength'] = 256
     }
     const result = CryptoJS[hash.toUpperCase ()] (request, options)
+    console.log ('hash result', result);
     return (digest === 'binary') ? result : result.toString (CryptoJS.enc[capitalize (digest)])
 }
 
@@ -98,7 +100,6 @@ function ecdsa (request, secret, algorithm = 'p256', hashFunction = undefined, f
     }
 }
 
-
 function eddsa (request, secret, algorithm = 'ed25519') {
     // used for waves.exchange (that's why the output is base58)
     const curve = new EDDSA (algorithm)
@@ -164,6 +165,10 @@ function crc32 (str, signed = false) {
     }
 }
 
+function createCipheriv (mode, key, nonceBytes) {
+    return crypto.createCipheriv (mode, key, nonceBytes);
+}
+
 /*  ------------------------------------------------------------------------ */
 
 module.exports = {
@@ -175,6 +180,7 @@ module.exports = {
     ecdsa,
     eddsa,
     crc32,
+    createCipheriv,
 }
 
 /*  ------------------------------------------------------------------------ */
