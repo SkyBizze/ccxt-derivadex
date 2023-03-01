@@ -10,8 +10,6 @@ const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError } = req
 const Precise = require ('./base/Precise');
 const CryptoJS = require ('./static_dependencies/crypto-js/crypto-js');
 const elliptic = require ('./static_dependencies/elliptic/lib/elliptic');
-// const { AuthenticationError, BadRequest, DDoSProtection, ExchangeError, ExchangeNotAvailable, InsufficientFunds, InvalidOrder, OrderNotFound, PermissionDenied, ArgumentsRequired, BadSymbol } = require ('./base/errors');
-// const Precise = require ('./base/Precise');
 
 //  ---------------------------------------------------------------------------
 
@@ -39,7 +37,7 @@ module.exports = class derivadex extends Exchange {
                 'createReduceOnlyOrder': false,
                 'editOrder': true,
                 'fetchBalance': true,
-                'fetchClosedOrders': true,
+                'fetchClosedOrders': false,
                 'fetchDepositAddress': true,
                 'fetchDepositAddresses': false,
                 'fetchDepositAddressesByNetwork': false,
@@ -88,7 +86,6 @@ module.exports = class derivadex extends Exchange {
                     'public': 'https://beta.derivadex.io',
                     'private': 'https://beta.derivadex.io',
                     'stats': 'https://beta.derivadex.io/stats',
-                    // 'v2': 'https://beta.derivadex.io/v2',
                     'v2': 'http://op1.ddx.one:15080/v2', // TODO: DELETE THIS
                     'op1': 'http://op1.ddx.one:15080/stats', // TODO: delete this before submitting
                     'raw': 'http://op1.ddx.one:15080', // TODO: delete this before submitting
@@ -194,6 +191,7 @@ module.exports = class derivadex extends Exchange {
                     'maker': 0.0,
                 },
             },
+            'encryptionKey': undefined,
         });
     }
 
@@ -368,10 +366,10 @@ module.exports = class derivadex extends Exchange {
          */
         await this.loadMarkets ();
         const market = this.market (symbol);
-        const tickers = await this.fetchTickers ([ market['symbol'] ], params);
-        const ticker = this.safeValue (tickers, market['symbol']);
+        const tickers = await this.fetchTickers ([ market['id'] ], params); // TODO, should this be id
+        const ticker = this.safeValue (tickers, market['id']);
         if (ticker === undefined) {
-            throw new BadSymbol (this.id + ' fetchTicker() symbol ' + symbol + ' not found');
+            throw new BadSymbol (this.id + ' fetchTicker() symbol ' + market['id'] + ' not found');
         }
         return ticker;
     }
@@ -701,7 +699,7 @@ module.exports = class derivadex extends Exchange {
         const responseValue = response['value'];
         const timestamp = this.safeInteger (response, 'timestamp');
         const result = {
-            'symbol': symbol,
+            'symbol': market['id'],
             'bids': [],
             'asks': [],
             'timestamp': timestamp,
@@ -1024,13 +1022,13 @@ module.exports = class derivadex extends Exchange {
             throw new AuthenticationError (this.id + ' cancelOrder endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
-        const orderIntent = this.getOperatorCancelOrderIntent (symbol, id);
+        const market = this.market (symbol);
+        const orderIntent = this.getOperatorCancelOrderIntent (market['id'], id);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder');
         const timestamp = Date.now ();
         if (operatorResponse['t'] !== 'Sequenced') {
             throw new ExchangeError (this.id + `cancelOrder request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
         }
-        const market = this.market (symbol);
         return this.safeOrder ({
             'id': undefined,
             'clientOrderId': undefined,
@@ -1038,7 +1036,7 @@ module.exports = class derivadex extends Exchange {
             'datetime': this.iso8601 (timestamp),
             'lastTradeTimestamp': undefined,
             'status': undefined,
-            'symbol': symbol,
+            'symbol': market['id'],
             'type': undefined,
             'timeInForce': 'GTC',
             'side': undefined,
@@ -1072,47 +1070,54 @@ module.exports = class derivadex extends Exchange {
             throw new AuthenticationError (this.id + ' createOrder endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
-        const orderType = this.capitalize (type);
-        const orderIntent = this.getOperatorSubmitOrderIntent (symbol, side, orderType, amount, price);
-        const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
-        const timestamp = Date.now ();
-        if (operatorResponse['t'] !== 'Sequenced') { // TODO: this assumption is wrong for market orders
-            throw new ExchangeError (this.id + `createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
-        }
         const market = this.market (symbol);
-        return this.safeOrder ({
-            'id': undefined,
-            'clientOrderId': undefined,
-            'timestamp': timestamp,
-            'datetime': this.iso8601 (timestamp),
-            'lastTradeTimestamp': undefined,
-            'status': undefined,
-            'symbol': symbol,
-            'type': type,
-            'timeInForce': 'GTC',
-            'side': side,
-            'price': price,
-            'average': undefined,
-            'amount': amount,
-            'filled': undefined,
-            'remaining': undefined,
-            'cost': undefined,
-            'trades': undefined,
-            'fee': undefined,
-            'info': operatorResponse,
-        }, market);
+        const orderType = this.capitalize (type);
+        const orderIntent = this.getOperatorSubmitOrderIntent (market['id'], side, orderType, amount, price);
+        try {
+            const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
+            const timestamp = Date.now ();
+            if (operatorResponse['t'] !== 'Sequenced') { // TODO: this assumption is wrong for market orders
+                throw new ExchangeError (this.id + `createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
+            }
+            return this.safeOrder ({
+                'id': undefined,
+                'clientOrderId': undefined,
+                'timestamp': timestamp,
+                'datetime': this.iso8601 (timestamp),
+                'lastTradeTimestamp': undefined,
+                'status': undefined,
+                'symbol': market['id'],
+                'type': type,
+                'timeInForce': 'GTC',
+                'side': side,
+                'price': price,
+                'average': undefined,
+                'amount': amount,
+                'filled': undefined,
+                'remaining': undefined,
+                'cost': undefined,
+                'trades': undefined,
+                'fee': undefined,
+                'info': operatorResponse,
+            }, market);
+        } catch (e) {
+            throw new ExchangeError (this.id + `createOrder request failed with error ${e}`);
+        }
     }
 
     async getOperatorResponseForOrderIntent (orderIntent, requestType) {
         // get the scaled order intent
         const scaledOrderIntent = requestType === 'Order' ? this.getScaledOrderIntent (orderIntent) : orderIntent;
         // get the order intent typed data
-        const encryptionKey = await this.v2GetEncryptionKey ();
+        let encryptionKey = this.encryptionKey;
+        if (encryptionKey === undefined) {
+            encryptionKey = await this.v2GetEncryptionKey ();
+            this.encryptionKey = encryptionKey;
+        }
         // const [ addressesResponse, encryptionKey ] = await Promise.all ([
         //     this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
         //     this.v2GetEncryptionKey (),
         // ]);
-        // console.log ('addresses', addressesResponse);
         const orderIntentData = this.getOrderIntentTypedData (
             scaledOrderIntent,
             // addressesResponse['chainId'],
@@ -1123,7 +1128,6 @@ module.exports = class derivadex extends Exchange {
         );
         // TODO: instead of importing sigUtil, use this typedData object alogn with provided hash primitives to compute the order signature
         // const typedData = this.transformTypedDataForEthers (orderIntentData);
-        // console.log ('typed data', typedData);
         // get the order signature
         const signature = sigUtil.signTypedData (
             Buffer.from (this.privateKey, 'hex'),
@@ -1196,7 +1200,6 @@ module.exports = class derivadex extends Exchange {
     getScaledOrderIntent (intent) {
         const operatorDecimals = 6;
         const operatorDecimalMultiplier = new Precise ((10 ** operatorDecimals).toString ());
-        // TODO: resolve spread operator not working and use that instead
         return {
             'traderAddress': intent['traderAddress'],
             'symbol': intent['symbol'],
@@ -1366,7 +1369,6 @@ module.exports = class derivadex extends Exchange {
         const json = JSON.stringify (payload);
         const buffer = Buffer.from (json);
         const requestBytes = new Uint8Array (buffer);
-        console.log ('about to slice encryption key', encryptionKey);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
@@ -1445,7 +1447,6 @@ module.exports = class derivadex extends Exchange {
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {object} a [balance structure]{@link https://docs.ccxt.com/en/latest/manual.html?#balance-structure}
          */
-        await this.loadMarkets ();
         // query strategy to get free/frozen collateral
         const strategyRequest = {
             'trader': this.walletAddress,
@@ -1493,12 +1494,64 @@ module.exports = class derivadex extends Exchange {
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {object} an [address structure]{@link https://docs.ccxt.com/en/latest/manual.html#address-structure}
          */
-        await this.loadMarkets ();
-        const addresses = await this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }); // TODO: switch to mainnet deployment,
+        const addresses = await this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }); // TODO: switch to mainnet
         if (code !== 'USDC' && code !== 'DDX') {
             throw new BadSymbol (this.id + ' fetchDepositAddress() does not support ' + code);
         }
         return addresses['addresses']['derivaDEXAddress'];
+    }
+
+    async fetchPositions (symbols = undefined, params = {}) {
+        /**
+         * @method
+         * @name derivadex#fetchPositions
+         * @description fetch all open positions
+         * @param {[string]|undefined} symbols list of unified market symbols
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @returns {[object]} a list of [position structure]{@link https://docs.ccxt.com/en/latest/manual.html#position-structure}
+         */
+        await this.loadMarkets ();
+        const response = await this.publicGetPositions ();
+        return this.parsePositions (response['value'], symbols);
+    }
+
+    parsePosition (position, market = undefined) {
+        // {
+        //     trader: '0x004404ac8bd8f9618d27ad2f1485aa1b2cfd82482d',
+        //     symbol: 'BTCPERP',
+        //     strategyIdHash: '0x2576ebd1',
+        //     side: '1',
+        //     balance: '0.24',
+        //     avgEntryPrice: '23271.101723',
+        //     lastModifiedInEpoch: null
+        // },
+        const id = position['trader'] + '_' + position['strategyIdHash'] + '_' + position['symbol'];
+        return {
+            'info': position,
+            'id': id,
+            'symbol': this.safeString (position, 'symbol'),
+            'timestamp': undefined,
+            'datetime': undefined,
+            'isoldated': false,
+            'hedged': undefined,
+            'side': position['side'] === '1' ? 'long' : 'short',
+            'contracts': this.safeNumber (position, 'balance'),
+            'contractSize': undefined,
+            'entryPrice': this.safeNumber (position, 'avgEntryPrice'),
+            'markPrice': undefined,
+            'notional': undefined,
+            'leverage': undefined,
+            'collateral': undefined,
+            'initialMargin': undefined,
+            'initialMarginPercentage': undefined,
+            'maintenanceMargin': undefined,
+            'maintenanceMarginPercentage': undefined,
+            'unrealizedPnl': undefined,
+            'liquidationPrice': undefined,
+            'marginMode': 'cross',
+            'marginRatio': undefined,
+            'percentage': undefined,
+        };
     }
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
@@ -1532,7 +1585,7 @@ module.exports = class derivadex extends Exchange {
                 params = this.omit (params, '_format');
             }
         }
-        // const testApi = api === 'v2' ? 'v2' : 'op1'; // TODO: SWITCH TO MAINNET URL
+        // TODO: SWITCH TO MAINNET URL, CLEANUP
         let testApi = '';
         if (api === 'v2') {
             testApi = 'v2';
