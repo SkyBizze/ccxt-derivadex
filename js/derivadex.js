@@ -997,14 +997,17 @@ module.exports = class derivadex extends Exchange {
         if (!isAuthenticated) {
             throw new AuthenticationError (this.id + ' cancelAllOrders endpoint requires privateKey and walletAddress credentials');
         }
-        await this.loadMarkets ();
         const strategy = params['strategyId'] === undefined ? 'main' : params['strategyId'];
         const orderIntent = this.getOperatorCancelAllOrdersIntent (strategy);
-        const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelAll');
-        if (operatorResponse['t'] !== 'Sequenced') {
-            throw new ExchangeError (this.id + `cancelAllOrders request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+        try {
+            const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelAll');
+            if (operatorResponse['t'] !== 'Sequenced') {
+                throw new ExchangeError (this.id + `cancelAllOrders request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+            }
+            return operatorResponse;
+        } catch (e) {
+            console.log ('cancelAllOrders order failed, error: ' + e);
         }
-        return operatorResponse;
     }
 
     async cancelOrder (id, symbol = undefined, params = {}) {
@@ -1024,32 +1027,36 @@ module.exports = class derivadex extends Exchange {
         await this.loadMarkets ();
         const market = this.market (symbol);
         const orderIntent = this.getOperatorCancelOrderIntent (market['id'], id);
-        const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder');
-        const timestamp = Date.now ();
-        if (operatorResponse['t'] !== 'Sequenced') {
-            throw new ExchangeError (this.id + `cancelOrder request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+        try {
+            const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'CancelOrder');
+            const timestamp = Date.now ();
+            if (operatorResponse['t'] !== 'Sequenced') {
+                throw new ExchangeError (this.id + `cancelOrder request failed with error ${operatorResponse['t']}, error contents: ${this.json (operatorResponse['c'])}`);
+            }
+            return this.safeOrder ({
+                'id': undefined,
+                'clientOrderId': undefined,
+                'timestamp': timestamp,
+                'datetime': this.iso8601 (timestamp),
+                'lastTradeTimestamp': undefined,
+                'status': undefined,
+                'symbol': market['id'],
+                'type': undefined,
+                'timeInForce': 'GTC',
+                'side': undefined,
+                'price': undefined,
+                'average': undefined,
+                'amount': undefined,
+                'filled': undefined,
+                'remaining': undefined,
+                'cost': undefined,
+                'trades': undefined,
+                'fee': undefined,
+                'info': operatorResponse,
+            }, market);
+        } catch (e) {
+            console.log ('cancel order failed, error: ' + e);
         }
-        return this.safeOrder ({
-            'id': undefined,
-            'clientOrderId': undefined,
-            'timestamp': timestamp,
-            'datetime': this.iso8601 (timestamp),
-            'lastTradeTimestamp': undefined,
-            'status': undefined,
-            'symbol': market['id'],
-            'type': undefined,
-            'timeInForce': 'GTC',
-            'side': undefined,
-            'price': undefined,
-            'average': undefined,
-            'amount': undefined,
-            'filled': undefined,
-            'remaining': undefined,
-            'cost': undefined,
-            'trades': undefined,
-            'fee': undefined,
-            'info': operatorResponse,
-        }, market);
     }
 
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
@@ -1077,7 +1084,7 @@ module.exports = class derivadex extends Exchange {
             const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
             const timestamp = Date.now ();
             if (operatorResponse['t'] !== 'Sequenced') { // TODO: this assumption is wrong for market orders
-                throw new ExchangeError (this.id + `createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
+                throw new ExchangeError (this.id + ` createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
             }
             return this.safeOrder ({
                 'id': undefined,
@@ -1101,7 +1108,8 @@ module.exports = class derivadex extends Exchange {
                 'info': operatorResponse,
             }, market);
         } catch (e) {
-            throw new ExchangeError (this.id + `createOrder request failed with error ${e}`);
+            console.log ('create order failed, error: ' + e);
+            console.log ('failed with orderIntent: ', market['id'], side, orderType, amount, price);
         }
     }
 
