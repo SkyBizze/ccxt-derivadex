@@ -2,7 +2,6 @@
 
 //  ---------------------------------------------------------------------------
 
-const crypto = require ('crypto');
 const sigUtil = require ('eth-sig-util');
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
@@ -1424,7 +1423,9 @@ module.exports = class derivadex extends Exchange {
         keccak256.update (CryptoJS.lib.WordArray.create (sharedPublicKeyCompressedBytes));
         const hash = keccak256.finalize ();
         const derivedKey = this.wordArrayToBytes (hash, 16);
-        const cipher = crypto.createCipheriv ('aes-128-gcm', derivedKey, nonceBytes);
+        // the provided CryptoJS static dependency does not include aes gcm encryption mode
+        // so we have to use the node crypto library for now
+        const cipher = this.createCipheriv ('aes-128-gcm', derivedKey, nonceBytes);
         const encodedMessage = Buffer.from (str, 'utf8');
         const messageLength = Buffer.alloc (4);
         messageLength.writeUInt32BE (encodedMessage.length, 0);
