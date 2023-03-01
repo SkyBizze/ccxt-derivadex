@@ -1124,6 +1124,7 @@ module.exports = class derivadex extends Exchange {
             throw new AuthenticationError (this.id + ' createOrder endpoint requires privateKey and walletAddress credentials');
         }
         await this.loadMarkets ();
+        const market = this.market (symbol);
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (market['id'], side, orderType, amount, price);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
@@ -1389,7 +1390,6 @@ module.exports = class derivadex extends Exchange {
         const json = JSON.stringify (payload);
         const buffer = Buffer.from (json);
         const requestBytes = new Uint8Array (buffer);
-        console.log ('about to slice encryption key', encryptionKey);
         const encryptionKeyBuffer = Buffer.from (encryptionKey.slice (3), 'hex');
         const encryptionKeyBytes = new Uint8Array (encryptionKeyBuffer);
         const encryptedBytes = this.encrypt (requestBytes, secretKeyBytes, encryptionKeyBytes, nonceBytes);
