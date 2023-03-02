@@ -1079,13 +1079,11 @@ module.exports = class derivadex extends Exchange {
             'trades': undefined,
             'fee': undefined,
             'info': operatorResponse,
-        }, market);   
+        }, market);
     }
 
     async getOperatorResponseForOrderIntent (orderIntent, requestType) {
-        // get the scaled order intent
         const scaledOrderIntent = requestType === 'Order' ? this.getScaledOrderIntent (orderIntent) : orderIntent;
-        // get the order intent typed data
         let encryptionKey = this.encryptionKey;
         if (encryptionKey === undefined) {
             encryptionKey = await this.v2GetEncryptionKey ();
@@ -1417,7 +1415,6 @@ module.exports = class derivadex extends Exchange {
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {object} a [balance structure]{@link https://docs.ccxt.com/en/latest/manual.html?#balance-structure}
          */
-        // query strategy to get free/frozen collateral
         const strategyRequest = {
             'trader': this.walletAddress,
             'strategyId': 'main',
