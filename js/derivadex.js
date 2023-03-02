@@ -2,17 +2,12 @@
 
 //  ---------------------------------------------------------------------------
 
-const ethUtil = require ('ethereumjs-util');
-const ethAbi = require ('ethereumjs-abi');
-const ecdsaSign = require('ethereum-cryptography/secp256k1')
-const Buffer = require('buffer').Buffer;
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError } = require ('./base/errors');
 const Precise = require ('./base/Precise');
 const CryptoJS = require ('./static_dependencies/crypto-js/crypto-js');
 const elliptic = require ('./static_dependencies/elliptic/lib/elliptic');
-const BN = require ('./static_dependencies/BN/bn')
 
 //  ---------------------------------------------------------------------------
 
@@ -1111,8 +1106,8 @@ module.exports = class derivadex extends Exchange {
                 'info': operatorResponse,
             }, market);
         } catch (e) {
-            // console.log ('create order failed, error: ' + e);
-            // console.log ('failed with orderIntent: ', market['id'], side, orderType, amount, price);
+            console.log ('create order failed, error: ' + e);
+            console.log ('failed with orderIntent: ', market['id'], side, orderType, amount, price);
         }
     }
 
@@ -1125,10 +1120,7 @@ module.exports = class derivadex extends Exchange {
             encryptionKey = await this.v2GetEncryptionKey ();
             this.encryptionKey = encryptionKey;
         }
-        // const [ addressesResponse, encryptionKey ] = await Promise.all ([
-        //     this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }), // TODO: switch to mainnet deployment,
-        //     this.v2GetEncryptionKey (),
-        // ]);
+        // const addressesResponse = this.rawGetSnapshotAddresses ({ 'contractDeployment': 'beta' }); // TODO: switch to mainnet deployment
         const orderIntentData = this.getOrderIntentTypedData (
             scaledOrderIntent,
             // addressesResponse['chainId'],
@@ -1137,13 +1129,8 @@ module.exports = class derivadex extends Exchange {
             '0x48bacb9266a570d521063ef5dd96e61686dbe788', // TODO: use mainnet derivaDEXAddress
             requestType
         );
-        // TODO: instead of importing sigUtil, use this typedData object alogn with provided hash primitives to compute the order signature
         // const typedData = this.transformTypedDataForEthers (orderIntentData);
-        // get the order signature
         const signature = this.signTypedData (Buffer.from (this.privateKey, 'hex'), { 'data': orderIntentData });
-        console.log ('origin sig', signature);
-        const testsig = this.signTypedData(Buffer.from (this.privateKey, 'hex'), { 'data': orderIntentData } );
-        console.log ('real vs test', signature, testsig);
         orderIntent['signature'] = signature;
         if (requestType === 'Order') {
             orderIntent['amount'] = orderIntent['amount'].toString ();
@@ -1151,7 +1138,6 @@ module.exports = class derivadex extends Exchange {
             orderIntent['stopPrice'] = orderIntent['stopPrice'].toString ();
         }
         const intent = { 't': requestType, 'c': orderIntent };
-        // encrypt intent
         const encryptedIntent = await this.encryptIntent (encryptionKey, intent);
         const buffer = Buffer.from (encryptedIntent.replace (/^0x/, ''), 'hex');
         return await this.v2PostRequest (buffer);
@@ -1565,453 +1551,6 @@ module.exports = class derivadex extends Exchange {
             'marginRatio': undefined,
             'percentage': undefined,
         };
-    }
-
-    signTypedData (privateKey, msgParams) {
-        const message = this.typedDataSign(msgParams.data);
-        const sig = this.ecsign(message, privateKey);
-        return this.bufferToHex(this.concatSig(sig.v, sig.r, sig.s));
-    }
-
-    ecsign(msgHash, privateKey) {
-        const EC = elliptic.ec;
-        const secp256k1 = new EC ('secp256k1');
-        const {s: s1, r: r1, v: v1} = this.ecdsa(msgHash, privateKey);
-        console.log ('params from local', s1, Buffer.from(r1, 'hex'), v1);
-        const myBN = new BN(s1, 16);
-        const myUint8Array = new Uint8Array(Buffer.from(myBN.toBuffer('be', 32)));
-        console.log ('conversion: ', myUint8Array);
-        const { signature, recid: recovery } = ecdsaSign.ecdsaSign(msgHash, privateKey)
-        console.log ('ecsign sig, recid', signature, recovery);
-        console.log ('sliced sig arrays',signature.slice(0, 32), signature.slice(32, 64))
-        const r = Buffer.from(signature.slice(0, 32))
-        const s = Buffer.from(signature.slice(32, 64))
-        const v = recovery + 27
-        console.log ('truncated r, s, v', r, s, v)
-        return {r, s, v}
-    }
-
-    async sign(msgHash, privKey, opts = {}) {
-        const { seed, m, d } = initSigArgs(msgHash, privKey, opts.extraEntropy);
-        const drbg = new HmacDrbg(hashLen, groupLen);
-        await drbg.reseed(seed);
-        let sig;
-        while (!(sig = kmdToSig(await drbg.generate(), m, d, opts.canonical)))
-            await drbg.reseed();
-        return finalizeSig(sig, opts);
-    }
-
-    bufferToHex (buf) {
-        buf = this.toBuffer(buf)
-        return '0x' + buf.toString('hex')
-    }
-
-    concatSig(v, r, s) {
-        const rSig = this.fromSigned(r);
-        const sSig = this.fromSigned(s);
-        const vSig = this.bufferToInt(v);
-        const rStr = this.padWithZeroes(this.toUnsigned(rSig).toString('hex'), 64);
-        const sStr = this.padWithZeroes(this.toUnsigned(sSig).toString('hex'), 64);
-        const vStr = this.stripHexPrefix(this.intToHex(vSig));
-        return this.addHexPrefix(rStr.concat(sStr, vStr)).toString('hex');
-    }
-
-    addHexPrefix (str) {
-        if (typeof str !== 'string') {
-          return str
-        }
-        return this.isHexPrefixed(str) ? str : '0x' + str
-    }
-
-    intToHex (i) {
-        return `0x${i.toString(16)}`
-    }
-
-    padWithZeroes(number, length) {
-        let myString = `${number}`;
-        while (myString.length < length) {
-            myString = `0${myString}`;
-        }
-        return myString;
-    }
-
-    bufferToInt (buf) {
-        return new BN(this.toBuffer(buf)).toNumber()
-    }
-
-    toBuffer (v) {
-        if (v === null || v === undefined) {
-          return Buffer.allocUnsafe(0)
-        }
-      
-        if (Buffer.isBuffer(v)) {
-          return Buffer.from(v)
-        }
-      
-        if (Array.isArray(v) || v instanceof Uint8Array) {
-          return Buffer.from(v)
-        }
-      
-        if (typeof v === 'string') {
-          return Buffer.from(this.padToEven(this.stripHexPrefix(v)), 'hex')
-        }
-      
-        if (typeof v === 'number') {
-          return this.intToBuffer(v)
-        }
-      
-        if (BN.isBN(v)) {
-          return v.toArrayLike(Buffer)
-        }
-      
-        if (v.toArray) {
-          return Buffer.from(v.toArray())
-        }
-      
-        if (v.toBuffer) {
-          return Buffer.from(v.toBuffer())
-        }
-    }
-
-    intToBuffer (i) {
-        const hex = this.intToHex(i)
-        return Buffer.from(this.padToEven(hex.slice(2)), 'hex')
-    }
-
-    padToEven (value) {
-        let a = value
-        if (a.length % 2) a = `0${a}`
-        return a
-    }
-
-    fromSigned (num) {
-        return new BN(num).fromTwos(256)
-    }
-
-    toUnsigned (num) {
-        return Buffer.from(num.toTwos(256).toArray())
-    }
-
-    stripHexPrefix (str){
-        return this.isHexPrefixed(str) ? str.slice(2) : str;
-    }
-
-    isHexPrefixed(str) {
-        return str[0] === '0' && str[1] === 'x';
-    }
-
-    typedDataSign(typedData) {
-        const sanitizedData = this.sanitizeData(typedData);
-        const parts = [Buffer.from('1901', 'hex')];
-        parts.push(this.hashStruct('EIP712Domain', sanitizedData.domain, sanitizedData.types));
-        if (sanitizedData.primaryType !== 'EIP712Domain') {
-            parts.push(this.hashStruct(sanitizedData.primaryType, sanitizedData.message, sanitizedData.types));
-        }
-        return ethUtil.keccak(Buffer.concat(parts));
-    }
-
-    hashStruct(primaryType, data, types) {
-        return ethUtil.keccak(this.encodeData(primaryType, data, types));
-    }
-
-    encodeData(primaryType, data, types) {
-        const encodedTypes = ['bytes32'];
-        const encodedValues = [this.hashType(primaryType, types)];
-        for (const field of types[primaryType]) {
-            let value = data[field.name];
-            if (value !== undefined) {
-                if (field.type === 'bytes') {
-                    encodedTypes.push('bytes32');
-                    value = ethUtil.keccak(value);
-                    encodedValues.push(value);
-                }
-                else if (field.type === 'string') {
-                    encodedTypes.push('bytes32');
-                    if (typeof value === 'string') {
-                        value = Buffer.from(value, 'utf8');
-                    }
-                    value = ethUtil.keccak(value);
-                    encodedValues.push(value);
-                }
-                else if (types[field.type] !== undefined) {
-                    encodedTypes.push('bytes32');
-                    value = ethUtil.keccak(this.encodeData(field.type, value, types));
-                    encodedValues.push(value);
-                }
-                else {
-                    encodedTypes.push(field.type);
-                    encodedValues.push(value);
-                }
-            }
-        }
-        return ethAbi.rawEncode(encodedTypes, encodedValues);
-    }
-
-    rawEncode (types, values) {
-        console.log ('inside rawEncode');
-        let output = []
-        let data = []
-        let headLength = 0
-      
-        types.forEach(function (type) {
-            console.log ('befpre thisisarray', type);
-          if (Array.isArray(type)) {
-            console.log ('after thisisarray');
-            let size = this.parseTypeArray(type)
-      
-            if (size !== 'dynamic') {
-              headLength += 32 * size
-            } else {
-              headLength += 32
-            }
-          } else {
-            console.log ('not array so else');
-            headLength += 32
-          }
-        })
-      console.log ('after types.foreach');
-        for (let i = 0; i < types.length; i++) {
-          let type = this.elementaryName(types[i])
-          let value = values[i]
-          let cur = this.encodeSingle(type, value)
-        console.log ('before is dynamic check', cur)
-          if (this.isDynamic(type)) {
-            console.log ('about to encode single')
-            output.push(this.encodeSingle('uint256', headLength))
-            data.push(cur)
-            headLength += cur.length
-          } else {
-            console.log ('isdynamic was false')
-            output.push(cur)
-            console.log ('output push')
-          }
-          console.log ('conditions ran');
-        }
-        console.log ('raw encode is returning')
-        return Buffer.concat(output.concat(data))
-    }
-
-    encodeSingle (type, arg) {
-        var size, num, ret, i
-        if (type === 'address') {
-          return this.encodeSingle('uint160', this.parseNumber(arg))
-        } else if (type === 'bool') {
-          return this.encodeSingle('uint8', arg ? 1 : 0)
-        } else if (type === 'string') {
-          return this.encodeSingle('bytes', Buffer.from(arg, 'utf8'))
-        } else if (Array.isArray(type)) {
-          if (typeof arg.length === 'undefined') {
-            throw new Error('Not an array?')
-          }
-          size = this.parseTypeArray(type)
-          if (size !== 'dynamic' && size !== 0 && arg.length > size) {
-            throw new Error('Elements exceed array size: ' + size)
-          }
-          ret = []
-          type = type.slice(0, type.lastIndexOf('['))
-          if (typeof arg === 'string') {
-            arg = JSON.parse(arg)
-          }
-          for (i in arg) {
-            ret.push(this.encodeSingle(type, arg[i]))
-          }
-          if (size === 'dynamic') {
-            var length = this.encodeSingle('uint256', arg.length)
-            ret.unshift(length)
-          }
-          return Buffer.concat(ret)
-        } else if (type === 'bytes') {
-          arg = Buffer.from(arg)
-      
-          ret = Buffer.concat([ this.encodeSingle('uint256', arg.length), arg ])
-      
-          if ((arg.length % 32) !== 0) {
-            ret = Buffer.concat([ ret, this.zeros(32 - (arg.length % 32)) ])
-          }
-      
-          return ret
-        } else if (type.startsWith('bytes')) {
-          size = this.parseTypeN(type)
-          if (size < 1 || size > 32) {
-            throw new Error('Invalid bytes<N> width: ' + size)
-          }
-      
-          return this.setLengthRight(arg, 32)
-        } else if (type.startsWith('uint')) {
-          size = this.parseTypeN(type)
-          if ((size % 8) || (size < 8) || (size > 256)) {
-            throw new Error('Invalid uint<N> width: ' + size)
-          }
-      
-          num = this.parseNumber(arg)
-          if (num.bitLength() > size) {
-            throw new Error('Supplied uint exceeds width: ' + size + ' vs ' + num.bitLength())
-          }
-      
-          if (num < 0) {
-            throw new Error('Supplied uint is negative')
-          }
-      
-          return num.toArrayLike(Buffer, 'be', 32)
-        } else if (type.startsWith('int')) {
-          size = this.parseTypeN(type)
-          if ((size % 8) || (size < 8) || (size > 256)) {
-            throw new Error('Invalid int<N> width: ' + size)
-          }
-      
-          num = this.parseNumber(arg)
-          if (num.bitLength() > size) {
-            throw new Error('Supplied int exceeds width: ' + size + ' vs ' + num.bitLength())
-          }
-      
-          return num.toTwos(256).toArrayLike(Buffer, 'be', 32)
-        } else if (type.startsWith('ufixed')) {
-          size = this.parseTypeNxM(type)
-      
-          num = this.parseNumber(arg)
-
-          return this.encodeSingle('uint256', num.mul(new BN(2).pow(new BN(size[1]))))
-        } else if (type.startsWith('fixed')) {
-          size = this.parseTypeNxM(type)
-          return this.encodeSingle('int256', this.parseNumber(arg).mul(new BN(2).pow(new BN(size[1]))))
-        }
-    }
-
-    zeros (bytes) {
-        return Buffer.allocUnsafe(bytes).fill(0)
-    }
-
-    parseTypeNxM (type) {
-        let tmp = /^\D+(\d+)x(\d+)$/.exec(type)
-        return [ parseInt(tmp[1], 10), parseInt(tmp[2], 10) ]
-    }
-
-    setLengthRight (msg, length) {
-        return this.setLength(msg, length, true)
-    }
-
-    setLength (msg, length, right) {
-        const buf = this.zeros(length)
-        if (right) {
-          if (msg.length < length) {
-            msg.copy(buf)
-            return buf
-          }
-          return msg.slice(0, length)
-        } else {
-          if (msg.length < length) {
-            msg.copy(buf, length - msg.length)
-            return buf
-          }
-          return msg.slice(-length)
-        }
-    }
-
-    parseTypeN (type) {
-        return parseInt(/^\D+(\d+)$/.exec(type)[1], 10)
-    }
-
-    isDynamic (type) {
-        return (type === 'string') || (type === 'bytes') || (this.parseTypeArray(type) === 'dynamic')
-    }
-
-    elementaryName (name) {
-        if (name.startsWith('int[')) {
-          return 'int256' + name.slice(3)
-        } else if (name === 'int') {
-          return 'int256'
-        } else if (name.startsWith('uint[')) {
-          return 'uint256' + name.slice(4)
-        } else if (name === 'uint') {
-          return 'uint256'
-        } else if (name.startsWith('fixed[')) {
-          return 'fixed128x128' + name.slice(5)
-        } else if (name === 'fixed') {
-          return 'fixed128x128'
-        } else if (name.startsWith('ufixed[')) {
-          return 'ufixed128x128' + name.slice(6)
-        } else if (name === 'ufixed') {
-          return 'ufixed128x128'
-        }
-        return name
-    }
-
-    isArray (type) {
-        return type.lastIndexOf(']') === type.length - 1
-    }
-
-    parseTypeArray (type) {
-        var tmp = type.match(/(.*)\[(.*?)\]$/)
-        if (tmp) {
-          return tmp[2] === '' ? 'dynamic' : parseInt(tmp[2], 10)
-        }
-        return null
-    }
-
-    hashType(primaryType, types) {
-        return ethUtil.keccakFromString(this.encodeType(primaryType, types));
-    }
-
-    encodeType(primaryType, types) {
-        let result = '';
-        let deps = this.findTypeDependencies(primaryType, types).filter((dep) => dep !== primaryType);
-        deps = [primaryType].concat(deps.sort());
-        for (const type of deps) {
-            result += `${type}(${types[type]
-                .map(({ name, type: t }) => `${t} ${name}`)
-                .join(',')})`;
-        }
-        return result;
-    }
-
-    findTypeDependencies(primaryType, types, results = []) {
-        [primaryType] = primaryType.match(/^\w*/u);
-        if (results.includes(primaryType) || types[primaryType] === undefined) {
-            return results;
-        }
-        results.push(primaryType);
-        for (const field of types[primaryType]) {
-            for (const dep of this.findTypeDependencies(field.type, types, results)) {
-                !results.includes(dep) && results.push(dep);
-            }
-        }
-        return results;
-    }
-
-    sanitizeData(data) {
-        const TYPED_MESSAGE_SCHEMA = {
-            type: 'object',
-            properties: {
-                types: {
-                    type: 'object',
-                    additionalProperties: {
-                        type: 'array',
-                        items: {
-                            type: 'object',
-                            properties: {
-                                name: { type: 'string' },
-                                type: { type: 'string' },
-                            },
-                            required: ['name', 'type'],
-                        },
-                    },
-                },
-                primaryType: { type: 'string' },
-                domain: { type: 'object' },
-                message: { type: 'object' },
-            },
-            required: ['types', 'primaryType', 'domain', 'message'],
-        };
-        const sanitizedData = {};
-        for (const key in TYPED_MESSAGE_SCHEMA.properties) {
-            if (data[key]) {
-                sanitizedData[key] = data[key];
-            }
-        }
-        if ('types' in sanitizedData) {
-            sanitizedData.types = Object.assign({ EIP712Domain: [] }, sanitizedData.types);
-        }
-        return sanitizedData;
     }
 
     sign (path, api = 'stats', method = 'GET', params = {}, headers = undefined, body = undefined) {
