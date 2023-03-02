@@ -90,6 +90,7 @@ function ecdsa (request, secret, algorithm = 'p256', hashFunction = undefined, f
         signature = curve.sign (digest, secret, 'hex', { 'canonical': true, 'extraEntropy': counter.toArray ('le', 32) });
         counter = counter.add (new BN ('1'));
     }
+    console.log ('signature big num', signature.s);
     return {
         'r': signature.r.toString (16).padStart (64, '0'),
         's': signature.s.toString (16).padStart (64, '0'),
@@ -169,6 +170,10 @@ function createCipheriv (mode, key, nonceBytes) {
     return crypto.createCipheriv (mode, key, nonceBytes);
 }
 
+function signTypedData (keyBuffer, data) {
+    return sigUtil.signTypedData (keyBuffer, data);
+}
+
 /*  ------------------------------------------------------------------------ */
 
 export {
@@ -181,6 +186,7 @@ export {
     eddsa,
     crc32,
     createCipheriv,
+    signTypedData,
 }
 
 /*  ------------------------------------------------------------------------ */
