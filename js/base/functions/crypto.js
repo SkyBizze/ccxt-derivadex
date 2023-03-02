@@ -13,6 +13,7 @@ const EDDSA = elliptic.eddsa
 const { ArgumentsRequired } = require ('./../errors')
 const BN = require ('../../static_dependencies/BN/bn.js')
 const crypto = require ('crypto');
+const sigUtil = require ('eth-sig-util');
 
 /*  ------------------------------------------------------------------------ */
 
@@ -23,7 +24,7 @@ const hash = (request, hash = 'md5', digest = 'hex') => {
         options['outputLength'] = 256
     }
     const result = CryptoJS[hash.toUpperCase ()] (request, options)
-    console.log ('hash result', result);
+    console.log ('hash result', result, digest);
     return (digest === 'binary') ? result : result.toString (CryptoJS.enc[capitalize (digest)])
 }
 
@@ -93,6 +94,7 @@ function ecdsa (request, secret, algorithm = 'p256', hashFunction = undefined, f
         signature = curve.sign (digest, secret, 'hex',  { 'canonical': true, 'extraEntropy': counter.toArray ('le', 32)})
         counter = counter.add (new BN ('1'))
     }
+    console.log ('signature big num', signature.s);
     return {
         'r': signature.r.toString (16).padStart (64, '0'),
         's': signature.s.toString (16).padStart (64, '0'),
@@ -169,6 +171,10 @@ function createCipheriv (mode, key, nonceBytes) {
     return crypto.createCipheriv (mode, key, nonceBytes);
 }
 
+function signTypedData (keyBuffer, data) {
+    return sigUtil.signTypedData (keyBuffer, data);
+}
+
 /*  ------------------------------------------------------------------------ */
 
 module.exports = {
@@ -181,6 +187,7 @@ module.exports = {
     eddsa,
     crc32,
     createCipheriv,
+    signTypedData,
 }
 
 /*  ------------------------------------------------------------------------ */
