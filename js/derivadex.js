@@ -2,17 +2,12 @@
 
 //  ---------------------------------------------------------------------------
 
-const ethUtil = require ('ethereumjs-util');
-const ethAbi = require ('ethereumjs-abi');
-const ecdsaSign = require('ethereum-cryptography/secp256k1')
-const Buffer = require('buffer').Buffer;
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
 const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
 const Precise = require ('./base/Precise');
 const CryptoJS = require ('./static_dependencies/crypto-js/crypto-js');
 const elliptic = require ('./static_dependencies/elliptic/lib/elliptic');
-const BN = require ('./static_dependencies/BN/bn')
 
 //  ---------------------------------------------------------------------------
 
