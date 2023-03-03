@@ -40,7 +40,7 @@ module.exports = class derivadex extends Exchange {
                 'fetchDepositAddresses': false,
                 'fetchDepositAddressesByNetwork': false,
                 'fetchFundingHistory': false,
-                'fetchFundingRate': false,
+                'fetchFundingRate': true,
                 'fetchFundingRateHistory': false,
                 'fetchFundingRates': true,
                 'fetchIndexOHLCV': false,
@@ -679,13 +679,13 @@ module.exports = class derivadex extends Exchange {
         //     }
         //   ]
         const responseValue = response['value'];
-        const timestamp = this.safeInteger (response, 'timestamp');
+        const timestamp = this.safeNumber (response, 'timestamp') * 1000;
         const result = {
             'symbol': market['id'],
             'bids': [],
             'asks': [],
             'timestamp': timestamp,
-            'datetime': undefined,
+            'datetime': this.iso8601 (timestamp),
             'nonce': undefined,
         };
         for (let i = 0; i < responseValue.length; i++) {
@@ -956,7 +956,6 @@ module.exports = class derivadex extends Exchange {
         if (!isAuthenticated) {
             throw new AuthenticationError (this.id + ' updateProfile endpoint requires privateKey and walletAddress credentials');
         }
-        await this.loadMarkets ();
         const orderIntent = this.getOperatorProfileUpdateIntent (payFeesInDDX);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'ProfileUpdate');
         if (operatorResponse['t'] !== 'Sequenced') {
@@ -1477,7 +1476,6 @@ module.exports = class derivadex extends Exchange {
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {[object]} a list of [position structure]{@link https://docs.ccxt.com/en/latest/manual.html#position-structure}
          */
-        await this.loadMarkets ();
         const response = await this.publicGetPositions ();
         response['value'].forEach ((position) => {
             position.timestamp = response['timestamp'] * 1000;
@@ -1534,13 +1532,28 @@ module.exports = class derivadex extends Exchange {
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {object} a dictionary of [funding rates structures]{@link https://docs.ccxt.com/en/latest/manual.html#funding-rates-structure}, indexe by market symbols
          */
-        await this.loadMarkets ();
         const response = await this.publicGetMarkets ();
         response['value'].forEach ((rate) => {
             rate.timestamp = response['timestamp'] * 1000;
         });
         const rates = this.parseFundingRates (response['value'], symbols);
         return this.filterByArray (rates, 'symbol', symbols);
+    }
+
+    async fetchFundingRate (symbol, params = {}) {
+        /**
+         * @method
+         * @name derivadex#fetchFundingRate
+         * @description fetch the current funding rate
+         * @param {string} symbol unified market symbol
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @returns {object} a [funding rate structure]{@link https://docs.ccxt.com/en/latest/manual.html#funding-rate-structure}
+         */
+        const response = await this.publicGetMarkets ({ 'symbol': symbol });
+        response['value'].forEach ((rate) => {
+            rate.timestamp = response['timestamp'] * 1000;
+        });
+        return this.parseFundingRates (response['value']);
     }
 
     parseFundingRate (contract, market = undefined) {
