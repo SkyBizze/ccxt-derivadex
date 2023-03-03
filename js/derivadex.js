@@ -42,7 +42,7 @@ module.exports = class derivadex extends Exchange {
                 'fetchFundingHistory': false,
                 'fetchFundingRate': false,
                 'fetchFundingRateHistory': false,
-                'fetchFundingRates': false,
+                'fetchFundingRates': true,
                 'fetchIndexOHLCV': false,
                 'fetchLedger': false,
                 'fetchLeverage': false,
@@ -134,7 +134,7 @@ module.exports = class derivadex extends Exchange {
                         'tx_logs': 1,
                         'aggregations/collateral': 1,
                         'aggregations/volume': 1,
-                        'markets/markets': 1,
+                        'markets': 1,
                         'markets/order_book/L2': 1,
                         'markets/tickers': 1,
                         'snapshot/addresses': 1,
@@ -1479,6 +1479,9 @@ module.exports = class derivadex extends Exchange {
          */
         await this.loadMarkets ();
         const response = await this.publicGetPositions ();
+        response['value'].forEach ((position) => {
+            position.timestamp = response['timestamp'] * 1000;
+        });
         return this.parsePositions (response['value'], symbols);
     }
 
@@ -1493,12 +1496,13 @@ module.exports = class derivadex extends Exchange {
         //     lastModifiedInEpoch: null
         // },
         const id = position['trader'] + '_' + position['strategyIdHash'] + '_' + position['symbol'];
+        const timestamp = this.safeNumber (position, 'timestamp');
         return {
             'info': position,
             'id': id,
             'symbol': this.safeString (position, 'symbol'),
-            'timestamp': undefined,
-            'datetime': undefined,
+            'timestamp': timestamp,
+            'datetime': this.iso8601 (timestamp),
             'isoldated': false,
             'hedged': undefined,
             'side': position['side'] === '1' ? 'long' : 'short',
@@ -1518,6 +1522,49 @@ module.exports = class derivadex extends Exchange {
             'marginMode': 'cross',
             'marginRatio': undefined,
             'percentage': undefined,
+        };
+    }
+
+    async fetchFundingRates (symbols = undefined, params = {}) {
+        /**
+         * @method
+         * @name derivadex#fetchFundingRates
+         * @description fetch the funding rate for multiple markets
+         * @param {[string]|undefined} symbols list of unified market symbols
+         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @returns {object} a dictionary of [funding rates structures]{@link https://docs.ccxt.com/en/latest/manual.html#funding-rates-structure}, indexe by market symbols
+         */
+        await this.loadMarkets ();
+        const response = await this.publicGetMarkets ();
+        response['value'].forEach ((rate) => {
+            rate.timestamp = response['timestamp'] * 1000;
+        });
+        const rates = this.parseFundingRates (response['value'], symbols);
+        return this.filterByArray (rates, 'symbol', symbols);
+    }
+
+    parseFundingRate (contract, market = undefined) {
+        // {"market":"ETHPERP","volume":"656.06","price":"1641.84","fundingRate":"0"}
+        const timestamp = this.safeNumber (contract, 'timestamp');
+        const datetime = this.iso8601 (timestamp);
+        return {
+            'info': contract,
+            'symbol': this.safeString (contract, 'market'),
+            'markPrice': this.safeNumber (contract, 'price'),
+            'indexPrice': undefined,
+            'interestRate': undefined,
+            'estimatedSettlePrice': undefined,
+            'timestamp': timestamp,
+            'datetime': datetime,
+            'fundingRate': this.safeString (contract, 'fundingRate'),
+            'fundingTimestamp': timestamp,
+            'fundingDatetime': datetime,
+            'nextFundingRate': undefined,
+            'nextFundingTimestamp': undefined,
+            'nextFundingDatetime': undefined,
+            'previousFundingRate': undefined,
+            'previousFundingTimestamp': undefined,
+            'previousFundingDatetime': undefined,
         };
     }
 
