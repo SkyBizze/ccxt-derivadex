@@ -52,6 +52,7 @@ module.exports = class derivadex extends Exchange {
                 'fetchMarkOHLCV': false,
                 'fetchMyTrades': true,
                 'fetchOHLCV': true,
+                'fetchOpenInterest': true,
                 'fetchOpenOrders': false,
                 'fetchOrder': true,
                 'fetchOrderBook': true,
@@ -410,7 +411,7 @@ module.exports = class derivadex extends Exchange {
             'bidVolume': bidVolume,
             'ask': ask,
             'askVolume': askVolume,
-            'vwap': this.safeString (ticker, 'volume_weighted_average_price'),
+            'vwap': this.safeString (ticker, 'volumeWeightedAveragePrice'),
             'open': this.safeString (ticker, 'open'),
             'close': this.safeString (ticker, 'close'),
             'last': this.safeString (ticker, 'close'),
@@ -418,8 +419,8 @@ module.exports = class derivadex extends Exchange {
             'change': this.safeString (ticker, 'change'),
             'percentage': this.safeString (ticker, 'percentage'),
             'average': undefined,
-            'baseVolume': this.safeString (ticker, 'base_volume'),
-            'quoteVolume': this.safeString (ticker, 'notional_volume'),
+            'baseVolume': this.safeString (ticker, 'baseVolume'),
+            'quoteVolume': this.safeString (ticker, 'notionalVolume'),
             'info': { orderBookResponse, tickerResponse },
         };
     }
@@ -1058,6 +1059,7 @@ module.exports = class derivadex extends Exchange {
         if (operatorResponse['t'] !== 'Sequenced') { // TODO: this assumption is wrong for market orders
             throw new ExchangeError (this.id + ` createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
         }
+        // fetch 10 most recent order intents, search them for operatorResponse.c.nonce = order intent nonce
         return this.safeOrder ({
             'id': undefined,
             'clientOrderId': undefined,
@@ -1578,6 +1580,38 @@ module.exports = class derivadex extends Exchange {
             'previousFundingRate': undefined,
             'previousFundingTimestamp': undefined,
             'previousFundingDatetime': undefined,
+        };
+    }
+
+    async fetchOpenInterest (symbol, params = {}) {
+        /**
+         * @method
+         * @name derivadex#fetchOpenInterest
+         * @description Retrieves the open interest of a market
+         * @param {string} symbol Unified CCXT market symbol
+         * @param {object} params exchange specific parameters
+         * @returns {object} an open interest structure{@link https://docs.ccxt.com/en/latest/manual.html#interest-history-structure}
+        */
+        const response = await this.publicGetMarkets ({ 'symbol': symbol });
+        response['value'].forEach ((rate) => {
+            rate.timestamp = response['timestamp'] * 1000;
+        });
+        return this.parseOpenInterest (response['value'][0]);
+    }
+
+    parseOpenInterest (interest, market = undefined) {
+        // {"market":"ETHPERP","volume":"0","price":"1569.09","fundingRate":"-0.004289023570273825","openInterest":"0.02"}
+        const timestamp = this.safeNumber (interest, 'timestamp');
+        const datetime = this.iso8601 (timestamp);
+        const openInterestAmount = this.safeNumber (interest, 'openInterest');
+        const price = this.safeNumber (interest, 'price');
+        return {
+            'symbol': this.safeString (interest, 'market'),
+            'openInterestAmount': openInterestAmount,
+            'openInterestValue': openInterestAmount * price,
+            'timestamp': timestamp,
+            'datetime': datetime,
+            'info': interest,
         };
     }
 
