@@ -4,7 +4,7 @@
 
 const Exchange = require ('./base/Exchange');
 const { DECIMAL_PLACES } = require ('./base/functions/number');
-const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError } = require ('./base/errors');
+const { AuthenticationError, BadSymbol, ArgumentsRequired, ExchangeError, OrderNotFound } = require ('./base/errors');
 const Precise = require ('./base/Precise');
 const CryptoJS = require ('./static_dependencies/crypto-js/crypto-js');
 const elliptic = require ('./static_dependencies/elliptic/lib/elliptic');
@@ -770,6 +770,31 @@ module.exports = class derivadex extends Exchange {
         }
     }
 
+    async getSequencedOrder (operatorResponse, lookbackLimit = undefined) {
+        /**
+         * @method
+         * @name derivadex#getSequencedOrder
+         * @description fetches information on an order made by the user
+         * @param {object} operatorResponse the operator response object associated with a derivadex createOrder() request
+         * @param {int|undefined} lookbackLimit the maximum number of order intents to lookback through to find an order intent. You may need a higher lookbackLimit value if many orders have been placed since the operatorResponse you are searching for returned
+         * @returns {object} An [order structure]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
+         */
+        const params = {
+            'trader': this.walletAddress,
+            'strategyId': 'main',
+            'order': 'desc',
+        };
+        if (lookbackLimit !== undefined) {
+            params['limit'] = lookbackLimit;
+        }
+        const response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (params);
+        const order = response['value'].find ((intent) => intent.nonce === operatorResponse.c.nonce);
+        if (order === undefined) {
+            throw new OrderNotFound (this.id + ' getSequencedOrder() could not find the order intent associated with this operator response');
+        }
+        return await this.parseOrder (order);
+    }
+
     async fetchPublicOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
         /**
          * @method
@@ -1073,6 +1098,7 @@ module.exports = class derivadex extends Exchange {
          * @param {float} amount how much of currency you want to trade in units of base currency
          * @param {float|undefined} price the price at which the order is to be fullfilled, in units of the quote currency, ignored in market orders
          * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @param {bool|undefined} params.getOrderConfirmation // if set to true, createOrder will return an order structure, otherwise createOrder will return the raw operator response.
          * @returns {object} an [order structure]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
          */
         const isAuthenticated = this.checkRequiredCredentials ();
@@ -1084,31 +1110,13 @@ module.exports = class derivadex extends Exchange {
         const orderType = this.capitalize (type);
         const orderIntent = this.getOperatorSubmitOrderIntent (market['id'], side, orderType, amount, price);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
-        const timestamp = Date.now ();
         if (operatorResponse['t'] !== 'Sequenced') {
             throw new ExchangeError (this.id + ` createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
         }
-        return this.safeOrder ({
-            'id': undefined,
-            'clientOrderId': undefined,
-            'timestamp': timestamp,
-            'datetime': this.iso8601 (timestamp),
-            'lastTradeTimestamp': undefined,
-            'status': undefined,
-            'symbol': market['id'],
-            'type': type,
-            'timeInForce': 'GTC',
-            'side': side,
-            'price': price,
-            'average': undefined,
-            'amount': amount,
-            'filled': undefined,
-            'remaining': undefined,
-            'cost': undefined,
-            'trades': undefined,
-            'fee': undefined,
-            'info': operatorResponse,
-        }, market);
+        if (!params.getOrderConfirmation) {
+            return operatorResponse;
+        }
+        return await this.getSequencedOrder (operatorResponse, 10);
     }
 
     async getOperatorResponseForOrderIntent (orderIntent, requestType) {
