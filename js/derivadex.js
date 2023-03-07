@@ -451,7 +451,7 @@ module.exports = class derivadex extends Exchange {
         if (since !== undefined) {
             request['since'] = since;
         }
-        request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
+        request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const extendedRequest = this.extend (request, params);
         if (extendedRequest['trader'] === undefined) {
             throw new AuthenticationError (this.id + ' fetchMyTrades() walletAddress is undefined, set this.walletAddress or "address" in params');
@@ -486,7 +486,7 @@ module.exports = class derivadex extends Exchange {
         if (since !== undefined) {
             request['since'] = since;
         }
-        request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
+        request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const response = await this.publicGetFills (this.extend (request, params));
         // {
         //     value: [
@@ -770,6 +770,11 @@ module.exports = class derivadex extends Exchange {
         }
     }
 
+    async wait (ms) {
+        // eslint-disable-next-line no-promise-executor-return
+        await new Promise ((resolve) => setTimeout (resolve, ms));
+    }
+
     async getSequencedOrder (operatorResponse, lookbackLimit = undefined) {
         /**
          * @method
@@ -787,10 +792,15 @@ module.exports = class derivadex extends Exchange {
         if (lookbackLimit !== undefined) {
             params['limit'] = lookbackLimit;
         }
-        const response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (params);
-        const order = response['value'].find ((intent) => intent.nonce === operatorResponse.c.nonce);
+        let response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (params);
+        let order = response['value'].find ((intent) => intent.nonce === operatorResponse.c.nonce);
         if (order === undefined) {
-            throw new OrderNotFound (this.id + ' getSequencedOrder() could not find the order intent associated with this operator response');
+            await this.wait (1000); // retry after 1 second
+            response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (params);
+            order = response['value'].find ((intent) => intent.nonce === operatorResponse.c.nonce);
+            if (order === undefined) {
+                throw new OrderNotFound (this.id + ' getSequencedOrder() could not find the order intent associated with this operator response');
+            }
         }
         return await this.parseOrder (order);
     }
@@ -817,7 +827,7 @@ module.exports = class derivadex extends Exchange {
         if (since !== undefined) {
             request['since'] = since;
         }
-        request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
+        request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const response = await this.publicGetOrderIntents (request);
         return await this.parseOrdersCustom (response['value'], market, since, limit);
     }
@@ -850,7 +860,7 @@ module.exports = class derivadex extends Exchange {
          * @description fetches information on multiple orders made by the user
          * @param {string|undefined} symbol unified market symbol of the market orders were made in
          * @param {int|undefined} since the earliest time in ms to fetch orders for
-         * @param {int|undefined} limit the maximum number of  orde structures to retrieve
+         * @param {int|undefined} limit the maximum number of order structures to retrieve
          * @param {string|undefined} params.order the chronological order of items in the response - 'asc' or 'desc'
          * @param {object} params extra parameters specific to the derivadex api endpoint
          * @returns {[object]} a list of [order structures]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
@@ -868,7 +878,7 @@ module.exports = class derivadex extends Exchange {
         if (since !== undefined) {
             request['since'] = since;
         }
-        request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
+        request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (request);
         return await this.parseOrdersCustom (response['value'], market, since, limit);
     }
