@@ -770,6 +770,33 @@ module.exports = class derivadex extends Exchange {
         }
     }
 
+    async fetchPublicOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        /**
+         * @method
+         * @name derivadex#fetchPublicOrders
+         * @description fetches information on multiple public orders made in a market
+         * @param {string|undefined} symbol unified market symbol of the market orders were made in
+         * @param {int|undefined} since the earliest time in ms to fetch orders for
+         * @param {int|undefined} limit the maximum number of  orde structures to retrieve
+         * @param {string|undefined} params.order the chronological order of items in the response - 'asc' or 'desc'
+         * @returns {[object]} a list of [order structures]{@link https://docs.ccxt.com/en/latest/manual.html#order-structure}
+         */
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const request = {
+            'symbol': market['id'],
+        };
+        if (limit !== undefined) {
+            request['limit'] = limit;
+        }
+        if (since !== undefined) {
+            request['since'] = since;
+        }
+        request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
+        const response = await this.publicGetOrderIntents (request);
+        return await this.parseOrdersCustom (response['value'], market, since, limit);
+    }
+
     async fetchOrder (id, symbol = undefined, params = {}) {
         /**
          * @method
@@ -807,6 +834,8 @@ module.exports = class derivadex extends Exchange {
         const market = this.market (symbol);
         const request = {
             'symbol': market['id'],
+            'trader': this.walletAddress,
+            'strategyId': 'main',
         };
         if (limit !== undefined) {
             request['limit'] = limit;
@@ -815,7 +844,7 @@ module.exports = class derivadex extends Exchange {
             request['since'] = since;
         }
         request['order'] = params['order'] !== undefined ? params['order'] : 'desc';
-        const response = await this.publicGetOrderIntents (request);
+        const response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (request);
         return await this.parseOrdersCustom (response['value'], market, since, limit);
     }
 
@@ -950,7 +979,7 @@ module.exports = class derivadex extends Exchange {
          * @method
          * @name derivadex#profileUpdate
          * @description update a trader profile
-         * @param {object} params extra parameters specific to the derivadex api endpoint
+         * @param {bool} payFeesInDDX whether to pay trading fees in DDX or not.
          * @returns {bool} whether the trader profile was updated successfully
          */
         const isAuthenticated = this.checkRequiredCredentials ();
@@ -1056,10 +1085,9 @@ module.exports = class derivadex extends Exchange {
         const orderIntent = this.getOperatorSubmitOrderIntent (market['id'], side, orderType, amount, price);
         const operatorResponse = await this.getOperatorResponseForOrderIntent (orderIntent, 'Order');
         const timestamp = Date.now ();
-        if (operatorResponse['t'] !== 'Sequenced') { // TODO: this assumption is wrong for market orders
+        if (operatorResponse['t'] !== 'Sequenced') {
             throw new ExchangeError (this.id + ` createOrder request failed with error ${this.json (operatorResponse['t'])}, error contents: ${this.json (operatorResponse['c'])}`);
         }
-        // fetch 10 most recent order intents, search them for operatorResponse.c.nonce = order intent nonce
         return this.safeOrder ({
             'id': undefined,
             'clientOrderId': undefined,
