@@ -16,7 +16,7 @@ module.exports = class derivadex extends Exchange {
         return this.deepExtend (super.describe (), {
             'id': 'derivadex',
             'name': 'DerivaDEX',
-            'countries': [ 'Japan' ], // Japan
+            'countries': [ 'JP' ], // Japan
             'version': 'v1',
             'rateLimit': 200, // TODO: add documentation for tiered rate limiting
             'pro': false,
@@ -102,7 +102,6 @@ module.exports = class derivadex extends Exchange {
                     'http://api.derivadex.io/',
                     'https://exchange.derivadex.com/api-docs',
                 ],
-                'fees': 'https://docs.derivadex.io/trading/fees',
             },
             'api': {
                 'public': {
@@ -375,7 +374,7 @@ module.exports = class derivadex extends Exchange {
          * @returns {object} an array of [ticker structures]{@link https://docs.ccxt.com/en/latest/manual.html#ticker-structure}
          */
         await this.loadMarkets ();
-        symbols = this.marketSymbols (symbols);
+        symbols = symbols === undefined ? Object.keys (this.markets) : this.marketSymbols (symbols);
         const result = {};
         for (let i = 0; i < symbols.length; i++) {
             const ticker = await this.constructTicker (symbols[i]);
