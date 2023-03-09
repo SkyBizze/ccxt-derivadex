@@ -713,7 +713,7 @@ module.exports = class derivadex extends Exchange {
          */
         await this.loadMarkets ();
         const market = this.market (symbol);
-        const fromTimestamp = this.getTimeForOhlcvRequest (this.timeframes[timeframe], since);
+        const fromTimestamp = this.getTimeForOhlcvRequest (this.timeframes[timeframe], since, limit);
         const request = {
             'symbol': market['id'],
             'interval': this.timeframes[timeframe],
@@ -739,10 +739,14 @@ module.exports = class derivadex extends Exchange {
         return [ timestamp, open, high, low, close, volume ];
     }
 
-    getTimeForOhlcvRequest (interval, time) {
+    getTimeForOhlcvRequest (interval, time, limit) {
         const msInMinute = 60 * 1000;
         const msInHour = 60 * 1000 * 60;
         const msInDay = 60 * 1000 * 60 * 24;
+        if (time === undefined) {
+            const duration = this.parseTimeframe (interval);
+            time = this.milliseconds () - duration * limit * 1000 - 1000;
+        }
         if (interval === '1m') {
             return Math.ceil (time / msInMinute) * msInMinute;
         }
