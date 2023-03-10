@@ -448,7 +448,7 @@ module.exports = class derivadex extends Exchange {
             request['limit'] = limit; // default 500
         }
         if (since !== undefined) {
-            request['since'] = since;
+            request['since'] = since / 1000;
         }
         request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const extendedRequest = this.extend (request, params);
@@ -483,7 +483,7 @@ module.exports = class derivadex extends Exchange {
             request['limit'] = limit; // default 500
         }
         if (since !== undefined) {
-            request['since'] = since;
+            request['since'] = since / 1000;
         }
         request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const response = await this.publicGetFills (this.extend (request, params));
@@ -828,7 +828,7 @@ module.exports = class derivadex extends Exchange {
             request['limit'] = limit;
         }
         if (since !== undefined) {
-            request['since'] = since;
+            request['since'] = since / 1000;
         }
         request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const response = await this.publicGetOrderIntents (request);
@@ -879,7 +879,7 @@ module.exports = class derivadex extends Exchange {
             request['limit'] = limit;
         }
         if (since !== undefined) {
-            request['since'] = since;
+            request['since'] = since / 1000;
         }
         request['order'] = params['order'] !== undefined ? params['order'] : 'asc';
         const response = await this.publicGetAccountTraderStrategyStrategyIdOrderIntents (request);
