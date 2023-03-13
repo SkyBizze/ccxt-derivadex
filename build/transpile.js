@@ -190,6 +190,7 @@ class Transpiler {
             [ /\.loadAccounts\s/g, '.load_accounts'],
             [ /\.fetchAccounts\s/g, '.fetch_accounts'],
             [ /\.loadFees\s/g, '.load_fees'],
+            [ /\.encrypt\s/g, '.encrypt'],
             [ /\.loadMarkets\s/g, '.load_markets'],
             [ /\.loadTimeDifference\s/g, '.load_time_difference'],
             [ /\.fetchMarkets\s/g, '.fetch_markets'],

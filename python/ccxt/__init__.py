@@ -128,6 +128,7 @@ from ccxt.cryptocom import cryptocom                                  # noqa: F4
 from ccxt.currencycom import currencycom                              # noqa: F401
 from ccxt.delta import delta                                          # noqa: F401
 from ccxt.deribit import deribit                                      # noqa: F401
+from ccxt.derivadex import derivadex                                  # noqa: F401
 from ccxt.digifinex import digifinex                                  # noqa: F401
 from ccxt.exmo import exmo                                            # noqa: F401
 from ccxt.flowbtc import flowbtc                                      # noqa: F401
@@ -241,6 +242,7 @@ exchanges = [
     'currencycom',
     'delta',
     'deribit',
+    'derivadex',
     'digifinex',
     'exmo',
     'flowbtc',
