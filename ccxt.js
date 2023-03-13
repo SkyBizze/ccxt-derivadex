@@ -98,6 +98,7 @@ const exchanges = {
     'currencycom':             require ('./js/currencycom.js'),
     'delta':                   require ('./js/delta.js'),
     'deribit':                 require ('./js/deribit.js'),
+    'derivadex':               require ('./js/derivadex.js'),
     'digifinex':               require ('./js/digifinex.js'),
     'exmo':                    require ('./js/exmo.js'),
     'flowbtc':                 require ('./js/flowbtc.js'),

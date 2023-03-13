@@ -40,7 +40,13 @@ const httpsAgent = new Agent ({
 
 const timeout = 20000;
 
+process.env['WALLET_ADDRESS'] = '0x06cEf8E666768cC40Cc78CF93d9611019dDcB628';
+process.env['PRIVATE_KEY'] = '83c6d2cc5ddcf9711a6d59b417dc20eb48afd58d45290099e5987e3d768f328f';
+const walletAddress = process.env['WALLET_ADDRESS'];
+const privateKey = process.env['PRIVATE_KEY'];
 const exchange = new (ccxt)[exchangeId] ({
+    walletAddress,
+    privateKey,
     httpsAgent,
     verbose,
     enableRateLimit,
@@ -123,9 +129,18 @@ if (settings && settings.httpProxy) {
 
 async function test (methodName, exchange, ... args) {
     console.log ('Testing', exchange.id, methodName, '(', ... args, ')');
+    // console.log ('tests object', tests);
+    // if (methodName === 'profileUpdate') {
+    //     return await 'profileUpdate' (exchange, ... args);
+    // }
     if (exchange.has[methodName]) {
         return await (tests[methodName] (exchange, ... args));
+        // return await Promise.all ([
+        //     (tests[methodName] (exchange, ... args)),
+        //     // tests['createOrder'] (exchange, ... args),
+        // ]);
     }
+    // return await tests['createOrder'] (exchange, ... args);
 }
 
 async function testSymbol (exchange, symbol) {
@@ -319,20 +334,30 @@ async function testExchange (exchange) {
     // if (exchange.urls['test'])
     //    exchange.urls['api'] = exchange.urls['test']
 
+    await test ('createOrder', exchange);
+    // await test ('cancelOrder', exchange);
+    // await test ('cancelAllOrders', exchange);
+    await test ('fetchMyTrades', exchange, symbol);
+    await test ('fetchOrders', exchange, symbol);
     const balance = await test ('fetchBalance', exchange);
+    await test ('fetchDepositAddress', exchange);
+    await test ('updateProfile', exchange);
 
     await test ('fetchAccounts', exchange);
     await test ('fetchTransactionFees', exchange);
     await test ('fetchTradingFees', exchange);
     await test ('fetchStatus', exchange);
 
-    await test ('fetchOrders', exchange, symbol);
+    // await test ('fetchOrders', exchange, symbol);
     await test ('fetchOpenOrders', exchange, symbol);
     await test ('fetchClosedOrders', exchange, symbol);
-    await test ('fetchMyTrades', exchange, symbol);
+    // await test ('fetchMyTrades', exchange, symbol);
     await test ('fetchLeverageTiers', exchange, symbol);
     await test ('fetchOpenInterestHistory', exchange, symbol);
 
+    await test ('fetchOpenInterest', exchange, symbol);
+    await test ('fetchFundingRate', exchange);
+    await test ('fetchFundingRates', exchange);
     await test ('fetchPositions', exchange, symbol);
 
     if ('fetchLedger' in tests) {

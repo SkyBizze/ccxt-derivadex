@@ -620,7 +620,9 @@
     "Kraken Futures",
     "bitazza.com",
     "Bitazza",
-    "Poloniex Futures"
+    "Poloniex Futures",
+    "exchange.derivadex.com",
+    "DerivaDEX"
   ],
   "collective": {
     "type": "opencollective",
@@ -629,6 +631,16 @@
   },
   "ethereum": "0x26a3CB49578F07000575405a57888681249c35Fd",
   "dependencies": {
+    "@noble/secp256k1": "^1.7.1",
+    "axios": "^0.27.2",
+    "elliptic": "^6.5.4",
+    "eth-sig-util": "^3.0.1",
+    "ethereumjs-abi": "^0.6.8",
+    "ethereumjs-util": "^7.1.5",
+    "ethers": "^5.7.2",
+    "keccak": "^3.0.3",
+    "secp256k1": "^5.0.0",
+    "wagmi": "^0.11.5",
     "ws": "^8.8.1"
   }
 }
