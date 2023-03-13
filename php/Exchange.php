@@ -387,7 +387,6 @@ class Exchange {
         'currencycom',
         'delta',
         'deribit',
-        'derivadex',
         'digifinex',
         'exmo',
         'flowbtc',
